@@ -1,0 +1,128 @@
+"""
+processes.py
+
+definition of events, their sources and matchers as well as some event
+classes
+
+Copyright (c) 2006-2010 Markus Wanner
+
+Distributed under the Boost Software License, Version 1.0. (See
+accompanying file LICENSE).
+"""
+
+import os, signal
+from twisted.internet import protocol, reactor
+from dtester.events import EventSource, ProcessEndedEvent, \
+                           ProcessOutputEvent, ProcessErrorEvent
+
+class SimpleProcessProtocol(protocol.ProcessProtocol):
+    def __init__(self, evSource):
+        self.eventSource = evSource
+
+    def connectionMade(self):
+        self.transport.closeStdin()
+
+    def outReceived(self, data):
+        self.eventSource.throwEvent(ProcessOutputEvent, data)
+
+    def errReceived(self, data):
+        self.eventSource.throwEvent(ProcessErrorEvent, data)
+
+    def processEnded(self, status):
+        self.eventSource.processEnded(status.value.exitCode)
+
+class SimpleProcessLineBasedProtocol(SimpleProcessProtocol):
+    def __init__(self, evSource):
+        SimpleProcessProtocol.__init__(self, evSource)
+        self.outBuffer = ""
+        self.errBuffer = ""
+
+    def outReceived(self, data):
+        self.outBuffer += data
+        lines = self.outBuffer.split("\n")
+        for line in lines[:-1]:
+            self.eventSource.throwEvent(ProcessOutputEvent, line)
+        self.outBuffer = lines[-1]
+
+    def outReceived(self, data):
+        self.errBuffer += data
+        lines = self.errBuffer.split("\n")
+        for line in lines[:-1]:
+            self.eventSource.throwEvent(ProcessErrorEvent, line)
+        self.errBuffer = lines[-1]
+
+class SimpleProcess(EventSource):
+    def __init__(self, proc_name, executable, cwd=os.getcwd(), args=None,
+                 env=[], lineBasedOutput=False):
+        EventSource.__init__(self)
+
+        if lineBasedOutput:
+            self.protocol = SimpleProcessLineBasedProtocol(self)
+        else:
+            self.protocol = SimpleProcessProtocol(self)
+
+        self.proc_name = proc_name
+        self.cwd = cwd
+        self.env = env
+        self.running = False
+
+        if not args:
+            args = [executable]
+
+        executable_exists = False
+
+        if executable[0] == '/':
+            executable_exists = os.path.exists(executable)
+        else:
+            for path in env['PATH'].split(':'):
+                if os.path.exists(os.path.join(path, executable)):
+                    executable_exists = True
+                    break
+
+        if executable_exists:
+            self.executable = executable
+            self.args = args
+        else:
+            raise IOError("No such executable file: %s" % executable)
+
+    def start(self):
+        reactor.spawnProcess(self.protocol, self.executable,
+                             args=self.args, path=self.cwd, env=self.env,
+                             usePTY=True)
+        self.running = True
+
+    # called by the protocol
+    def processEnded(self, exitCode):
+        if not exitCode:
+            exitCode = 0
+        assert isinstance(exitCode, int)
+        self.throwEvent(ProcessEndedEvent, exitCode)
+        self.running = False
+
+    def stop(self, sig=signal.SIGTERM):
+        if self.running:
+            try:
+                pid = int(self.protocol.transport.pid)
+                os.kill(pid, sig)
+                if sig == signal.SIGTERM:
+                    next_sig = signal.SIGINT
+                else:
+                    next_sig = signal.SIGKILL
+                reactor.callLater(10, self.stop, next_sig)
+            except TypeError, e:
+                # sometimes, self.protocol.transport.pid is not an
+                # integer. We assume the process has ended in the
+                # mean time, so we simply skip sending a signal
+                pass
+            except OSError, e:
+                if e.errno == 3:  # no such process
+                    pass
+                else:
+                    print "Exception while killing: %s" % e
+
+    def write(self, *args, **kwargs):
+        self.protocol.transport.write(*args, **kwargs)
+
+    def __repr__(self):
+        return "%s" % self.proc_name
+

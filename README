@@ -1,0 +1,21 @@
+
+  d t e s t e r
+
+a component based test suite for distributed systems
+
+Version 0.0
+
+
+Pending Issues
+
+ * Documentation still lacking.
+ * Support for expected failures and skipping tests.
+ * Self-testing test suite.
+ * Complete implementation of nested test suites.
+
+
+Copyright (c) 2006-2010 Markus Wanner
+
+Distributed under the Boost Software License, Version 1.0. (See
+accompanying file LICENSE).
+
