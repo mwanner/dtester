@@ -89,19 +89,24 @@ class StreamReporter(Reporter):
             msg = "OK:     %s: %s\n" % (tname, desc)
         else:
             tb = traceback.extract_tb(failure.getTracebackObject())
-            row = tb.pop()
-
-            # the last row of the traceback might well one of the standard
-            # check methods in the BaseTest class. We don't want to display
-            # that.
-            while row[2] in ('assertEqual', 'assertNotEqual'):
+            try:
                 row = tb.pop()
 
-            filename = row[0]
-            lineno = row[1]
+                # the last row of the traceback might well one of the standard
+                # check methods in the BaseTest class. We don't want to display
+                # that.
+                while row[2] in ('assertEqual', 'assertNotEqual'):
+                    row = tb.pop()
 
-            errmsg = failure.getErrorMessage()
-            msg = "FAILED: %s: %s - %s in %s:%d\n" % (tname, desc, errmsg, filename, lineno)
+                filename = row[0]
+                lineno = row[1]
+
+                errmsg = failure.getErrorMessage()
+                msg = "FAILED: %s: %s - %s in %s:%d\n" % (
+                    tname, desc, errmsg, filename, lineno)
+            except IndexError:
+                errmsg = failure.getErrorMessage()
+                msg = "FAILED: %s %s - %s" % (tname, desc, errmsg)
 
         self.outs.write(msg)
         self.outs.flush()
