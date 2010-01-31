@@ -1,13 +1,13 @@
-"""
-test.py
+# test.py
+#
+# Copyright (c) 2006-2010 Markus Wanner
+#
+# Distributed under the Boost Software License, Version 1.0. (See
+# accompanying file LICENSE).
 
+"""
 definition of the BaseTest class, its simpler derivate SyncTest as well
 as the TestSuite class for dtester.
-
-Copyright (c) 2006-2010 Markus Wanner
-
-Distributed under the Boost Software License, Version 1.0. (See
-accompanying file LICENSE).
 """
 
 from twisted.internet import defer, reactor, threads
@@ -15,7 +15,10 @@ from twisted.python.failure import Failure
 from exceptions import TestAborted, TestDependantAbort, TimeoutError, \
                        TestFailure
 
+
 class BaseTest(object):
+    """ Abstract base class for all tests and test suites.
+    """
 
     args = ()
     needs = ()
@@ -106,7 +109,12 @@ class BaseTest(object):
     def addNestedDependency(self, tname):
         self.runner.addNestedDependency(self, tname)
 
+
 class Timeout:
+    """ A helper class for encapsulating deferreds with a timeout, handling
+        results as well as failures correctly, whether they arrive before
+        or after the timeout.
+    """
 
     def __init__(self, msg, timeout, d):
         self.msg = msg
@@ -120,7 +128,7 @@ class Timeout:
     def checkTimeout(self):
         if not self.timer_deferred.called:
             # print "Timeout, forwarding failure!"
-            self.timer_deferred.errback(Failure(
+            self.timer_deferred.errback(failure.Failure(
                 TimeoutError("TIMEOUT: %s!" % self.msg)))
 
     def completed(self, result):
@@ -140,7 +148,11 @@ class Timeout:
     def getDeferred(self):
         return self.timer_deferred
 
+
 class SyncTest(BaseTest):
+    """ Base class for tests that run in a separate thread outside the main
+        twisted reactor event loop.
+    """
 
     def startAndWaitFor(self, source, matcher, timeout):
         return threads.blockingCallFromThread(reactor,
@@ -177,6 +189,10 @@ class SyncTest(BaseTest):
         return threads.deferToThread(self.run)
 
 class TestSuite(BaseTest):
+    """ Base class for test suites, which L{setUp} and L{tearDown} the
+        environment, services or settings required for running
+        L{tests<BaseTest>}.
+    """
 
     def __init__(self, runner, *args, **kwargs):
         BaseTest.__init__(self, runner, *args, **kwargs)

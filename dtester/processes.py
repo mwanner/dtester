@@ -1,13 +1,13 @@
-"""
-processes.py
+# processes.py
+#
+# Copyright (c) 2006-2010 Markus Wanner
+#
+# Distributed under the Boost Software License, Version 1.0. (See
+# accompanying file LICENSE).
 
+"""
 definition of events, their sources and matchers as well as some event
 classes
-
-Copyright (c) 2006-2010 Markus Wanner
-
-Distributed under the Boost Software License, Version 1.0. (See
-accompanying file LICENSE).
 """
 
 import os, signal
@@ -16,6 +16,9 @@ from dtester.events import EventSource, ProcessEndedEvent, \
                            ProcessOutputEvent, ProcessErrorEvent
 
 class SimpleProcessProtocol(protocol.ProcessProtocol):
+    """ A simple protocol helper for L{SimpleProcess}, generating events
+        for every single piece of data received.
+    """
     def __init__(self, evSource):
         self.eventSource = evSource
 
@@ -32,6 +35,10 @@ class SimpleProcessProtocol(protocol.ProcessProtocol):
         self.eventSource.processEnded(status.value.exitCode)
 
 class SimpleProcessLineBasedProtocol(SimpleProcessProtocol):
+    """ A line based protocol helper for L{SimpleProcess}, generating events
+        only for complete lines of data. Useful for processes with line based
+        console UIs.
+    """
     def __init__(self, evSource):
         SimpleProcessProtocol.__init__(self, evSource)
         self.outBuffer = ""
@@ -52,6 +59,10 @@ class SimpleProcessLineBasedProtocol(SimpleProcessProtocol):
         self.errBuffer = lines[-1]
 
 class SimpleProcess(EventSource):
+    """ Sentinel object for external processes. Takes care of starting the
+        process, generating events for outputs to standard output and error
+        channels as well as process termination.
+    """
     def __init__(self, proc_name, executable, cwd=os.getcwd(), args=None,
                  env=[], lineBasedOutput=False):
         EventSource.__init__(self)

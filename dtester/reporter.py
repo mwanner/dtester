@@ -1,20 +1,27 @@
+# reporter.py
+#
+# Copyright (c) 2006-2010 Markus Wanner
+#
+# Distributed under the Boost Software License, Version 1.0. (See
+# accompanying file LICENSE).
+
 """
-reporter.py
-
 reporting of progress and test results
-
-Copyright (c) 2006-2010 Markus Wanner
-
-Distributed under the Boost Software License, Version 1.0. (See
-accompanying file LICENSE).
 """
 
 import sys, time, traceback
 from dtester.test import BaseTest, TestSuite
 
 class Reporter:
+    """ An abstract base class for all reporters.
+    """
 
     def __init__(self, outs=sys.stdout, errs=sys.stderr):
+        """ @param outs: output stream for progress and result information
+            @type  outs: file handle
+            @param errs: error stream for reporting errors
+            @type  errs: file handle
+        """
         self.outs = outs
         self.errs = errs
 
@@ -22,9 +29,11 @@ class Reporter:
         self.suite_failures = {}
 
     def getDescription(self, suite, attname=None):
-        """ @Returns the test's description or that of one of its methods,
+        """ @return: the test's description or that of one of its methods,
                      i.e. the setUpDescription.
         """
+        # FIXME: shouldn't this be part of the BaseTest class?
+        #
         # We either have a someThingDescription attribute or the main test's
         # description attribute (note the lower case there).
         if attname:
@@ -47,6 +56,9 @@ class Reporter:
 
 
 class StreamReporter(Reporter):
+    """ A simple, human readable stream reporter without any bells and
+        whistles. Can get confusing to read as it dumps a lot of output.
+    """
 
     def begin(self, tdef):
         self.t_start = time.time()
@@ -143,6 +155,11 @@ class StreamReporter(Reporter):
 
 
 class TapReporter(Reporter):
+    """ A (hopefully) TAP compatible stream reporter, useful for automated
+        processing of test results.
+
+        @note: compatibility with other TAP tools is mostly untested.
+    """
 
     def begin(self, tdefs):
         self.t_start = time.time()
@@ -245,6 +262,10 @@ class TapReporter(Reporter):
 
 
 class CursesReporter(Reporter):
+    """ A more advanced reporter for terminal users based on curses
+        functionality. Concentrates on test results and emits setUp and
+        tearDown information only as vanishing status lines.
+    """
 
     def __init__(self, outs=sys.stdout, errs=sys.stderr):
         Reporter.__init__(self, outs, errs)
@@ -383,7 +404,8 @@ class CursesReporter(Reporter):
         self.results[tname] = (result, failure)
 
         if result:
-            msg = self.COLOR_GREEN + "OK" + self.NORMAL + "      %s: %s" % (tname, desc)
+            msg = self.COLOR_GREEN + "OK" + self.NORMAL + "      %s (%s)" % (
+				tname, desc)
         else:
             tb = traceback.extract_tb(failure.getTracebackObject())
             row = tb.pop()
@@ -398,7 +420,8 @@ class CursesReporter(Reporter):
             lineno = row[1]
 
             errmsg = failure.getErrorMessage()
-            msg = self.COLOR_RED + "FAILED" + self.NORMAL + "  %s: %s - %s in %s:%d" % (tname, desc, errmsg, filename, lineno)
+            msg = self.COLOR_RED + "FAILED" + self.NORMAL + \
+				"  %s: %s in %s:%d" % (tname, errmsg, filename, lineno)
 
         self.updateResultLine(tname, msg)
 

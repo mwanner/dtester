@@ -1,18 +1,21 @@
-"""
-events.py
+# events.py
+#
+# Copyright (c) 2006-2010 Markus Wanner
+#
+# Distributed under the Boost Software License, Version 1.0. (See
+# accompanying file LICENSE).
 
+"""
 definition of events, their sources and matchers as well as some event
 classes
-
-Copyright (c) 2006-2010 Markus Wanner
-
-Distributed under the Boost Software License, Version 1.0. (See
-accompanying file LICENSE).
 """
 
 from twisted.internet import defer
 
 class EventSource:
+    """ An abstract object representing any kind of process, workflow or
+        background job that emits L{events<Event>}.
+    """
     def __init__(self):
         self.hooks = {}
         self.maxHookId = 0
@@ -33,6 +36,8 @@ class EventSource:
         del self.hooks[maxHookId]
 
 class Event:
+    """ Base class for all events.
+    """
     def __init__(self, source):
         self.source = source
 
@@ -43,6 +48,8 @@ class Event:
         return "Event of type %s" % (self.__class__,)
 
 class EventMatcher(object):
+    """ A matcher that compares L{events<Event>} against a certain criterion.
+    """
     def __init__(self, eventClass, *args, **kargs):
         self.eventClass = eventClass
         self.args = args
@@ -56,8 +63,11 @@ class EventMatcher(object):
             return event.matches(*self.args)
 
 
-
 class StreamDataEvent(Event):
+    """ An abstract class for events thrown by L{SimpleProcess} for every kind
+        of output to any channel.
+    """
+
     name = 'DataEvent'
 
     def __init__(self, source, data):
@@ -73,15 +83,28 @@ class StreamDataEvent(Event):
     def __repr__(self):
         return "[%s] %s: %s" % (self.source, self.name, self.data)
 
+
 class ProcessOutputEvent(StreamDataEvent):
+    """ The event thrown by L{SimpleProcess} for every output to its standard
+        output channel.
+    """
+
     name = 'out'
 
+
 class ProcessErrorEvent(StreamDataEvent):
+    """ The event thrown by L{SimpleProcess} for every output to its standard
+        error channel.
+    """
+
     name = 'err'
 
 
-
 class ProcessEndedEvent(Event):
+    """ The event thrown by L{SimpleProcess} as soon as the controlled
+        process has terminated.
+    """
+
     name = 'terminated'
 
     def __init__(self, source, exitCode):
@@ -91,4 +114,3 @@ class ProcessEndedEvent(Event):
     def __repr__(self):
         return "[%s] terminated with error code %s" % (
             self.source, self.exitCode)
-

@@ -1,24 +1,26 @@
-"""
-runner.py
+# runner.py
+#
+# Copyright (c) 2006-2010 Markus Wanner
+#
+# Distributed under the Boost Software License, Version 1.0. (See
+# accompanying file LICENSE).
 
+"""
 scheduling of tests and test suites, running them in parallel based on an
 asynchronous event loop using twisted.
-
-Copyright (c) 2006-2010 Markus Wanner
-
-Distributed under the Boost Software License, Version 1.0. (See
-accompanying file LICENSE).
 """
 
 import os, copy
 from twisted.python import failure
 from twisted.internet import defer, reactor
 
-from dtester.test import BaseTest, TestSuite
-from dtester.processes import SimpleProcess
-from dtester.exceptions import TimeoutError
+from test import Timeout, BaseTest, TestSuite
+from processes import SimpleProcess
+from exceptions import TimeoutError, UnableToRun
 
 class TestState:
+    """ The structure used to keep track of a test or test suite.
+    """
 
     def __init__(self, className, name):
         self.tClass = className
@@ -44,41 +46,12 @@ class TestState:
     def getSuite(self):
         return self.suite
 
-class Timeout:
-
-    def __init__(self, msg, timeout, d):
-        self.msg = msg
-        self.timer_deferred = defer.Deferred()
-        reactor.callLater(timeout, self.checkTimeout)
-
-        self.encapsulated_deferred = d
-        self.encapsulated_deferred.addCallback(self.completed)
-        self.encapsulated_deferred.addErrback(self.failed)
-
-    def checkTimeout(self):
-        if not self.timer_deferred.called:
-            # print "Timeout, forwarding failure!"
-            self.timer_deferred.errback(failure.Failure(
-                TimeoutError("TIMEOUT: %s!" % self.msg)))
-
-    def completed(self, result):
-        if not self.timer_deferred.called:
-            #print "forwarding result"
-            self.timer_deferred.callback(result)
-        #else:
-        #    print "late result: %s" % str(result)
-
-    def failed(self, failure):
-        if not self.timer_deferred.called:
-            #print "forwarding failure"
-            self.timer_deferred.errback(failure)
-        #else:
-        #    print "late failure: %s" % failure
-
-    def getDeferred(self):
-        return self.timer_deferred
 
 class InitialSuite(TestSuite):
+    """ The initial suite providing an initial base environment for all
+        tests and suites. Encapsulating functions of the host the tests
+        are started from.
+    """
 
     args = (('config', dict),
             ('env', dict))
@@ -128,10 +101,11 @@ class InitialSuite(TestSuite):
         else:
             self.env['LD_LIBRARY_PATH'] = path
 
-class UnableToRun(Exception):
-    pass
 
 class Runner:
+    """ The core test runner, which schedules the start and stop of all tests
+        and test suites.
+    """
     def __init__(self, reporter, testTimeout=15, suiteTimeout=60):
         self.reporter = reporter
         self.test_states = {}
