@@ -398,16 +398,63 @@ class CursesReporter(Reporter):
 
     def startTest(self, tname, test):
         desc = self.getDescription(test)
-        msg = "running %s (%s)" % (tname, desc)
+        msg = self.renderResultLine("running", tname, desc)
         self.addResultLine(tname, msg)
+
+    def renderResultLine(self, result, tname, tdesc, errmsg=None,
+                         filename=None, lineno=None):
+        # FIXME: retrieve terminal width from curses!
+        columns = 80
+        rest = columns
+
+        # first 7 chars for the result
+        if result == "running":
+            msg = "running"
+        elif result == "OK":
+            msg = self.COLOR_GREEN + "     OK" + self.NORMAL
+        elif result == "FAILED":
+            msg = self.COLOR_RED + " FAILED" + self.NORMAL
+        elif result == "SKIPPED":
+            msg = self.COLOR_BLUE + "SKIPPED" + self.NORMAL
+        else:
+            raise Exception("unknown result: '%s'" % result)
+
+        # add the test name
+        msg += " " + tname + ": "
+        rest = columns - 3 - 7 - len(tname)
+
+        right = ""
+        if filename and lineno:
+            # FIXME: assumes no more than 99999 line numbers
+            rest -= len(filename) + 9
+            right = " %s:%05d" % (filename, lineno)
+
+        if errmsg and rest > 5:
+            if len(errmsg) > rest:
+                errmsg = " " + errmsg[:rest-4] + ".."
+                rest = 0
+            else:
+                rest -= len(errmsg) + 1
+            right = errmsg + " " + right
+
+        if rest > 5:
+            if len(tdesc) > rest:
+                tdesc = tdesc[:rest-3] + ".."
+                rest = 0
+            else:
+                rest -= len(tdesc) + 1
+            msg += tdesc
+
+        return msg + " " * rest + right
 
     def stopTest(self, tname, test, result, failure):
         desc = self.getDescription(test)
         self.results[tname] = (result, failure)
 
         if result:
-            msg = self.COLOR_GREEN + "OK" + self.NORMAL + "      %s (%s)" % (
-				tname, desc)
+            msg = self.renderResultLine("OK", tname, desc)
+            #msg = self.COLOR_GREEN + "OK" + self.NORMAL + "      %s (%s)" % (
+			#	tname, desc)
         else:
             tb = traceback.extract_tb(failure.getTracebackObject())
             row = tb.pop()
@@ -422,8 +469,10 @@ class CursesReporter(Reporter):
             lineno = row[1]
 
             errmsg = failure.getErrorMessage()
-            msg = self.COLOR_RED + "FAILED" + self.NORMAL + \
-				"  %s: %s in %s:%d" % (tname, errmsg, filename, lineno)
+            msg = self.renderResultLine("FAILED", tname, desc,
+                                        errmsg, filename, lineno)
+            #msg = self.COLOR_RED + "FAILED" + self.NORMAL + \
+			#	"  %s: %s in %s:%d" % (tname, errmsg, filename, lineno)
 
         self.updateResultLine(tname, msg)
 
@@ -459,3 +508,10 @@ class CursesReporter(Reporter):
         #self.outs.write("# ERROR: %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
         self.suite_failures[tname] = failure
+
+def reporterFactory():
+    if sys.stdout.isatty():
+        return CursesReporter()
+    else:
+        return StreamReporter()
+

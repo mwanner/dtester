@@ -17,6 +17,7 @@ from twisted.internet import defer, reactor
 from test import Timeout, BaseTest, TestSuite
 from processes import SimpleProcess
 from exceptions import TimeoutError, UnableToRun
+from dtester.reporter import reporterFactory
 
 class TestState:
     """ The structure used to keep track of a test or test suite.
@@ -106,8 +107,8 @@ class Runner:
     """ The core test runner, which schedules the start and stop of all tests
         and test suites.
     """
-    def __init__(self, reporter, testTimeout=15, suiteTimeout=60):
-        self.reporter = reporter
+    def __init__(self, reporter=None, testTimeout=15, suiteTimeout=60):
+        self.reporter = reporter or reporterFactory()
         self.test_states = {}
         self.testTimeout = testTimeout
         self.suiteTimeout = suiteTimeout
