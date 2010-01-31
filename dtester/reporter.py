@@ -117,6 +117,8 @@ class StreamReporter(Reporter):
                 msg = "FAILED: %s: %s - %s in %s:%d\n" % (
                     tname, desc, errmsg, filename, lineno)
             except IndexError:
+                filename = None
+                lineno = None
                 errmsg = failure.getErrorMessage()
                 msg = "FAILED: %s %s - %s" % (tname, desc, errmsg)
 
