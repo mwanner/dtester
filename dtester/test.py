@@ -167,18 +167,16 @@ class SyncTest(BaseTest):
         return td.getDeferred()
 
     def syncCall(self, timeout, method, *args, **kwargs):
-        return threads.blockingCallFromThread(reactor,
-            self._syncCall, timeout, method, *args, **kwargs)
+        try:
+            return threads.blockingCallFromThread(reactor,
+                self._syncCall, timeout, method, *args, **kwargs)
+        except TimeoutError, e:
+            raise TimeoutError("timeout")
 
     def _syncCall(self, timeout, method, *args, **kwargs):
         td = Timeout("Test: _syncCall", timeout,
                      defer.maybeDeferred(method, *args, **kwargs))
-        d = td.getDeferred()
-        def pf(result):
-            print "failure during _syncCall: %s" % result
-            return result
-        d.addErrback(pf)
-        return d
+        return td.getDeferred()
 
     def sleep(self, timeout):
         # add a minute to the sleep timeout for syncCall's timeout argument,

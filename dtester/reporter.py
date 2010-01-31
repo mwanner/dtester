@@ -107,7 +107,7 @@ class StreamReporter(Reporter):
                 # the last row of the traceback might well one of the standard
                 # check methods in the BaseTest class. We don't want to display
                 # that.
-                while row[2] in ('assertEqual', 'assertNotEqual'):
+                while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
                     row = tb.pop()
 
                 filename = row[0]
