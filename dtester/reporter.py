@@ -117,8 +117,6 @@ class StreamReporter(Reporter):
                 msg = "FAILED: %s: %s - %s in %s:%d\n" % (
                     tname, desc, errmsg, filename, lineno)
             except IndexError:
-                filename = None
-                lineno = None
                 errmsg = failure.getErrorMessage()
                 msg = "FAILED: %s %s - %s" % (tname, desc, errmsg)
 
@@ -212,22 +210,26 @@ class TapReporter(Reporter):
             msg = "ok %d - %s: %s\n" % (
                 self.numberMapping[tname], tname, desc)
         else:
+            errmsg = failure.getErrorMessage()
             tb = traceback.extract_tb(failure.getTracebackObject())
-            row = tb.pop()
-
-            # the last row of the traceback might well one of the standard
-            # check methods in the BaseTest class. We don't want to display
-            # that.
-            while row[2] in ('assertEqual', 'assertNotEqual'):
+            try:
                 row = tb.pop()
 
-            filename = row[0]
-            lineno = row[1]
+                # the last row of the traceback might well one of the standard
+                # check methods in the BaseTest class. We don't want to display
+                # that.
+                while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
+                    row = tb.pop()
 
-            errmsg = failure.getErrorMessage()
-            msg = "not ok %d - %s: %s # %s in %s:%d\n" % (
-                self.numberMapping[tname], tname, desc,
-                errmsg, filename, lineno)
+                filename = row[0]
+                lineno = row[1]
+
+                msg = "not ok %d - %s: %s # %s in %s:%d\n" % (
+                    self.numberMapping[tname], tname, desc,
+                    errmsg, filename, lineno)
+            except IndexError:
+                msg = "not ok %d - %s: %s # %s\n" % (
+                    self.numberMapping[tname], tname, desc, errmsg)
 
         self.outs.write(msg)
         self.outs.flush()
@@ -457,22 +459,26 @@ class CursesReporter(Reporter):
 			#	tname, desc)
         else:
             tb = traceback.extract_tb(failure.getTracebackObject())
-            row = tb.pop()
-
-            # the last row of the traceback might well one of the standard
-            # check methods in the BaseTest class. We don't want to display
-            # that.
-            while row[2] in ('assertEqual', 'assertNotEqual'):
+            try:
                 row = tb.pop()
 
-            filename = row[0]
-            lineno = row[1]
+                # the last row of the traceback might well one of the standard
+                # check methods in the BaseTest class. We don't want to display
+                # that.
+                while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
+                    row = tb.pop()
 
-            errmsg = failure.getErrorMessage()
+                filename = row[0]
+                lineno = row[1]
+
+                errmsg = failure.getErrorMessage()
+            except IndexError:
+                filename = None
+                lineno = None
+                errmsg = failure.getErrorMessage()
+
             msg = self.renderResultLine("FAILED", tname, desc,
                                         errmsg, filename, lineno)
-            #msg = self.COLOR_RED + "FAILED" + self.NORMAL + \
-			#	"  %s: %s in %s:%d" % (tname, errmsg, filename, lineno)
 
         self.updateResultLine(tname, msg)
 
