@@ -11,7 +11,7 @@ as the TestSuite class for dtester.
 """
 
 from twisted.internet import defer, reactor, threads
-from twisted.python.failure import Failure
+from twisted.python import failure
 from exceptions import TestAborted, TestDependantAbort, TimeoutError, \
                        TestFailure
 
@@ -86,11 +86,11 @@ class BaseTest(object):
         if not d.called:
             d.callback(True)
 
-    def _abort(self, failure):
+    def _abort(self, result):
         self.aborted = True
         self.running = False
         if self.wait_deferred and not self.wait_deferred.called:
-            self.wait_deferred.errback(failure)
+            self.wait_deferred.errback(result)
 
     def abort(self, *args, **kwargs):
         self._abort(TestAborted(*args, **kwargs))
@@ -138,12 +138,12 @@ class Timeout:
         #else:
         #    print "late result: %s" % str(result)
 
-    def failed(self, failure):
+    def failed(self, result):
         if not self.timer_deferred.called:
             #print "forwarding failure"
-            self.timer_deferred.errback(failure)
+            self.timer_deferred.errback(result)
         #else:
-        #    print "late failure: %s" % failure
+        #    print "late failure: %s" % result
 
     def getDeferred(self):
         return self.timer_deferred
@@ -174,9 +174,9 @@ class SyncTest(BaseTest):
         td = Timeout("Test: _syncCall", timeout,
                      defer.maybeDeferred(method, *args, **kwargs))
         d = td.getDeferred()
-        def pf(failure):
-            print "failure during _syncCall: %s" % failure
-            return failure
+        def pf(result):
+            print "failure during _syncCall: %s" % result
+            return result
         d.addErrback(pf)
         return d
 
@@ -198,8 +198,8 @@ class TestSuite(BaseTest):
         BaseTest.__init__(self, runner, *args, **kwargs)
         self.children = []
 
-    def setUpFailure(self, failure):
-        print "failure in setUp: %s, skipping contained tests" % failure
+    def setUpFailure(self, result):
+        print "failure in setUp: %s, skipping contained tests" % result
         return False
 
     def testSucceeded(self, result, fixture, test):
@@ -207,14 +207,14 @@ class TestSuite(BaseTest):
             fixture['results'][test] = (True,)
             fixture['reporter'].stopTest(test)
 
-    def testFailed(self, failure, fixture, test):
-        print "failure in test: %s" % failure
+    def testFailed(self, result, fixture, test):
+        print "failure in test: %s" % result
         if not isinstance(test, TestSuite):
-            fixture['results'][test] = (False, failure)
+            fixture['results'][test] = (False, result)
             fixture['reporter'].stopTest(test)
 
-    def tearDownFailure(self, failure):
-        print "failure in tearDown: %s" % failure
+    def tearDownFailure(self, result):
+        print "failure in tearDown: %s" % result
 
     def runNextSubtest(self, result, fixture, remainingTests):
         try:
@@ -249,7 +249,7 @@ class TestSuite(BaseTest):
         d.addErrback(self.setUpFailure)
         return d
 
-    def _abort(self, failure):
-        BaseTest._abort(self, failure)
+    def _abort(self, result):
+        BaseTest._abort(self, result)
         for c in self.children:
             c._abort(TestDependantAbort())
