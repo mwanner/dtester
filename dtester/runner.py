@@ -143,7 +143,7 @@ class Runner:
         self.reporter.stopTearDownSuite(suite_name, suite)
         return None
 
-    def ebSuiteTearDownFailed(self, failure, suite_name):
+    def ebSuiteTearDownFailed(self, failure, suite_name, suite):
         self.test_states[suite_name].tStatus = 'done'
         self.test_states[suite_name].running = False
         self.test_states[suite_name].failure = failure
