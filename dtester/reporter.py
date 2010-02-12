@@ -10,7 +10,10 @@ reporting of progress and test results
 """
 
 import sys, time, traceback
+from twisted.internet import defer
+from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
+import exceptions
 
 class Reporter:
     """ An abstract base class for all reporters.
@@ -54,6 +57,40 @@ class Reporter:
                     suite, e)
             return desc
 
+    def dumpError(self, tname, err):
+        assert isinstance(err, failure.Failure)
+        inner_err = err.value
+
+        # extract FirstError's, as throws from a DeferredList
+        while isinstance(inner_err, defer.FirstError):
+            err = inner_err.subFailure
+            inner_err = err.value
+
+        if isinstance(inner_err, exceptions.TestFailure):
+            msg = "=" * 20 + "\n"
+            msg += "%s failed: %s\n" % (tname, inner_err.message)
+            if inner_err.getDetails():
+                msg += "-" * 20 + "\n"
+                msg += inner_err.getDetails() + "\n"
+            self.errs.write(msg + "\n")
+        else:
+            msg = "=" * 20 + "\n"
+            msg += "Error in test %s:\n" % (tname,)
+            msg += "-" * 20 + "\n"
+            msg += repr(err) + "\n"
+            msg += "-" * 20 + "\n"
+            self.errs.write(msg)
+            err.printBriefTraceback(self.errs)
+            self.errs.write("\n")
+
+    def dumpErrors(self):
+        for tname, (result, err) in self.results.iteritems():
+            if not result:
+                self.dumpError(tname, err)
+
+        for suite_name, err in self.suite_failures.iteritems():
+            self.dumpError(suite_name, err)
+
 
 class StreamReporter(Reporter):
     """ A simple, human readable stream reporter without any bells and
@@ -64,19 +101,14 @@ class StreamReporter(Reporter):
         self.t_start = time.time()
 
     def end(self, result, error):
+        self.dumpErrors()
+
         self.t_end = time.time()
 
         count_succ = 0
         for tname, (result, err) in self.results.iteritems():
             if result:
                 count_succ += 1
-            #else:
-            #    self.errs.write("Test %s failed:\n" % tname)
-            #    self.errs.write(str(err) + "\n\n")
-
-        for suite_name, err in self.suite_failures.iteritems():
-            self.errs.write("Suite %s failed:\n" % suite_name)
-            self.errs.write(str(err) + "\n\n")
 
         if count_succ == len(self.results):
             msg = "%d tests processed successfully in %0.1f seconds.\n" % (
@@ -375,16 +407,14 @@ class CursesReporter(Reporter):
         self.t_start = time.time()
 
     def end(self, result, error):
+        self.dumpErrors()
+
         self.t_end = time.time()
 
         count_succ = 0
         for tname, (result, error) in self.results.iteritems():
             if result:
                 count_succ += 1
-
-        for suite_name, err in self.suite_failures.iteritems():
-            self.errs.write("Suite %s failed:\n" % suite_name)
-            self.errs.write(str(err) + "\n\n")
 
         if count_succ == len(self.results):
             msg = "%d tests processed successfully in %0.1f seconds.\n" % (
