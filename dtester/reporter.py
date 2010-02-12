@@ -13,7 +13,7 @@ import sys, time, traceback
 from twisted.internet import defer
 from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
-import exceptions
+from dtester.exceptions import TestFailure
 
 class Reporter:
     """ An abstract base class for all reporters.
@@ -66,7 +66,7 @@ class Reporter:
             err = inner_err.subFailure
             inner_err = err.value
 
-        if isinstance(inner_err, exceptions.TestFailure):
+        if isinstance(inner_err, TestFailure):
             msg = "=" * 20 + "\n"
             msg += "%s failed: %s\n" % (tname, inner_err.message)
             if inner_err.getDetails():

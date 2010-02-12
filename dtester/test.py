@@ -12,8 +12,8 @@ as the TestSuite class for dtester.
 
 from twisted.internet import defer, reactor, threads
 from twisted.python import failure
-from exceptions import TestAborted, TestDependantAbort, TimeoutError, \
-                       TestFailure
+from dtester.exceptions import TestAborted, TestDependantAbort, TimeoutError, \
+                               TestFailure
 
 
 class BaseTest(object):

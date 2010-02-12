@@ -14,9 +14,9 @@ import os, copy
 from twisted.python import failure
 from twisted.internet import defer, reactor
 
-from test import Timeout, BaseTest, TestSuite
-from processes import SimpleProcess
-from exceptions import TimeoutError, UnableToRun
+from dtester.test import Timeout, BaseTest, TestSuite
+from dtester.processes import SimpleProcess
+from dtester.exceptions import TimeoutError, UnableToRun
 from dtester.reporter import reporterFactory
 
 class TestState:
