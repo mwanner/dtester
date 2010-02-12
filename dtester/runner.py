@@ -120,8 +120,8 @@ class Runner:
         self.reporter.end(True, None)
         reactor.stop()
 
-    def processCmdListFailed(self, failure):
-        self.reporter.end(False, failure)
+    def processCmdListFailed(self, error):
+        self.reporter.end(False, error)
         reactor.stop()
 
     def cbSuiteSetUp(self, result, suite_name, suite):
@@ -130,11 +130,11 @@ class Runner:
         self.reporter.stopSetUpSuite(suite_name, suite)
         return None
 
-    def ebSuiteSetUpFailed(self, failure, suite_name, suite):
+    def ebSuiteSetUpFailed(self, error, suite_name, suite):
         self.test_states[suite_name].tStatus = 'done'
-        self.test_states[suite_name].failure = failure
+        self.test_states[suite_name].failure = error
         self.reporter.stopSetUpSuite(suite_name, suite)
-        self.reporter.suiteSetUpFailure(suite_name, suite, failure)
+        self.reporter.suiteSetUpFailure(suite_name, suite, error)
         return None
 
     def cbSuiteTornDown(self, result, suite_name, suite):
@@ -143,12 +143,12 @@ class Runner:
         self.reporter.stopTearDownSuite(suite_name, suite)
         return None
 
-    def ebSuiteTearDownFailed(self, failure, suite_name, suite):
+    def ebSuiteTearDownFailed(self, error, suite_name, suite):
         self.test_states[suite_name].tStatus = 'done'
         self.test_states[suite_name].running = False
-        self.test_states[suite_name].failure = failure
+        self.test_states[suite_name].failure = error
         self.reporter.stopTearDownSuite(suite_name, suite)
-        self.reporter.suiteTearDownFailure(suite_name, suite, failure)
+        self.reporter.suiteTearDownFailure(suite_name, suite, error)
         return None
 
     def cbTestSucceeded(self, result, tname, test):
@@ -156,10 +156,10 @@ class Runner:
         self.reporter.stopTest(tname, test, True, None)
         return (True, None)
 
-    def cbTestFailed(self, failure, tname, test):
+    def cbTestFailed(self, error, tname, test):
         self.test_states[tname].tStatus = 'done'
-        self.reporter.stopTest(tname, test, False, failure)
-        return (False, failure)
+        self.reporter.stopTest(tname, test, False, error)
+        return (False, error)
 
     def cbSleep(self, result, test):
         return None
@@ -383,15 +383,15 @@ class Runner:
         print "returning none"
         return None
 
-    def trapUnableToRun(self, failure, tname, t):
-        r = failure.trap(UnableToRun)
+    def trapUnableToRun(self, error, tname, t):
+        r = error.trap(UnableToRun)
         print "unable to run test %s" % (tname,)
         t.tStatus = 'failed'
         return None
 
-    def testStartupFailed(self, failure, tname, t):
+    def testStartupFailed(self, error, tname, t):
         print "startup of test %s failed, skipping.\n" % (tname,)
-        failure.printTraceback()
+        error.printTraceback()
         t.tStatus = 'failed'
         return None
 

@@ -63,20 +63,20 @@ class StreamReporter(Reporter):
     def begin(self, tdef):
         self.t_start = time.time()
 
-    def end(self, result, failure):
+    def end(self, result, error):
         self.t_end = time.time()
 
         count_succ = 0
-        for tname, (result, failure) in self.results.iteritems():
+        for tname, (result, err) in self.results.iteritems():
             if result:
                 count_succ += 1
             #else:
             #    self.errs.write("Test %s failed:\n" % tname)
-            #    self.errs.write(str(failure) + "\n\n")
+            #    self.errs.write(str(err) + "\n\n")
 
-        for suite_name, failure in self.suite_failures.iteritems():
+        for suite_name, err in self.suite_failures.iteritems():
             self.errs.write("Suite %s failed:\n" % suite_name)
-            self.errs.write(str(failure) + "\n\n")
+            self.errs.write(str(err) + "\n\n")
 
         if count_succ == len(self.results):
             msg = "%d tests processed successfully in %0.1f seconds.\n" % (
@@ -94,13 +94,13 @@ class StreamReporter(Reporter):
         self.outs.write("        %s: test started\n" % (tname,))
         self.outs.flush()
 
-    def stopTest(self, tname, test, result, failure):
+    def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
-        self.results[tname] = (result, failure)
+        self.results[tname] = (result, error)
         if result:
             msg = "OK:     %s: %s\n" % (tname, desc)
         else:
-            tb = traceback.extract_tb(failure.getTracebackObject())
+            tb = traceback.extract_tb(error.getTracebackObject())
             try:
                 row = tb.pop()
 
@@ -113,11 +113,11 @@ class StreamReporter(Reporter):
                 filename = row[0]
                 lineno = row[1]
 
-                errmsg = failure.getErrorMessage()
+                errmsg = error.getErrorMessage()
                 msg = "FAILED: %s: %s - %s in %s:%d\n" % (
                     tname, desc, errmsg, filename, lineno)
             except IndexError:
-                errmsg = failure.getErrorMessage()
+                errmsg = error.getErrorMessage()
                 msg = "FAILED: %s %s - %s" % (tname, desc, errmsg)
 
         self.outs.write(msg)
@@ -139,19 +139,19 @@ class StreamReporter(Reporter):
     def stopSetUpSuite(self, tname, suite):
         pass
 
-    def suiteSetUpFailure(self, tname, suite, failure):
-        tb = failure.getTracebackObject()
-        msg = failure.getErrorMessage()
+    def suiteSetUpFailure(self, tname, suite, error):
+        tb = error.getTracebackObject()
+        msg = error.getErrorMessage()
 
         self.outs.write("ERROR:  %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = failure
+        self.suite_failures[tname] = error
 
-    def suiteTearDownFailure(self, tname, suite, failure):
-        msg = failure.getErrorMessage()
+    def suiteTearDownFailure(self, tname, suite, error):
+        msg = error.getErrorMessage()
         self.outs.write("ERROR:  %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = failure
+        self.suite_failures[tname] = error
 
 
 class TapReporter(Reporter):
@@ -175,17 +175,17 @@ class TapReporter(Reporter):
         self.outs.write("TAP version 13\n")
         self.outs.write("1..%d\n" % nr)
 
-    def end(self, result, failure):
+    def end(self, result, error):
         self.t_end = time.time()
 
         count_succ = 0
-        for tname, (result, failure) in self.results.iteritems():
+        for tname, (result, error) in self.results.iteritems():
             if result:
                 count_succ += 1
 
-        #for suite_name, failure in self.suite_failures.iteritems():
+        #for suite_name, err in self.suite_failures.iteritems():
         #    self.errs.write("Suite %s failed:\n" % suite_name)
-        #    self.errs.write(str(failure) + "\n\n")
+        #    self.errs.write(str(err) + "\n\n")
 
         if count_succ == len(self.results):
             msg = "# %d tests processed successfully in %0.1f seconds.\n" % (
@@ -203,15 +203,15 @@ class TapReporter(Reporter):
         self.outs.write("#        %s: test started\n" % (tname,))
         self.outs.flush()
 
-    def stopTest(self, tname, test, result, failure):
+    def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
-        self.results[tname] = (result, failure)
+        self.results[tname] = (result, error)
         if result:
             msg = "ok %d - %s: %s\n" % (
                 self.numberMapping[tname], tname, desc)
         else:
-            errmsg = failure.getErrorMessage()
-            tb = traceback.extract_tb(failure.getTracebackObject())
+            errmsg = error.getErrorMessage()
+            tb = traceback.extract_tb(error.getTracebackObject())
             try:
                 row = tb.pop()
 
@@ -250,19 +250,19 @@ class TapReporter(Reporter):
     def stopTearDownSuite(self, tname, suite):
         pass
 
-    def suiteSetUpFailure(self, tname, suite, failure):
-        tb = failure.getTracebackObject()
-        msg = failure.getErrorMessage()
+    def suiteSetUpFailure(self, tname, suite, error):
+        tb = error.getTracebackObject()
+        msg = error.getErrorMessage()
 
         self.outs.write("# ERROR: %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = failure
+        self.suite_failures[tname] = error
 
-    def suiteTearDownFailure(self, tname, suite, failure):
-        msg = failure.getErrorMessage()
+    def suiteTearDownFailure(self, tname, suite, error):
+        msg = error.getErrorMessage()
         self.outs.write("# ERROR: %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = failure
+        self.suite_failures[tname] = error
 
 
 class CursesReporter(Reporter):
@@ -286,6 +286,7 @@ class CursesReporter(Reporter):
         self.CURSOR_DOWN = curses.tigetstr('cud1')
         self.CLEAR_EOL = curses.tigetstr('el')
         self.NORMAL = curses.tigetstr('sgr0')
+        self.COLUMNS = curses.tigetnum('cols')
 
         setf = curses.tigetstr('setf')
         setaf = curses.tigetstr('setaf')
@@ -373,17 +374,17 @@ class CursesReporter(Reporter):
     def begin(self, tdefs):
         self.t_start = time.time()
 
-    def end(self, result, failure):
+    def end(self, result, error):
         self.t_end = time.time()
 
         count_succ = 0
-        for tname, (result, failure) in self.results.iteritems():
+        for tname, (result, error) in self.results.iteritems():
             if result:
                 count_succ += 1
 
-        for suite_name, failure in self.suite_failures.iteritems():
+        for suite_name, err in self.suite_failures.iteritems():
             self.errs.write("Suite %s failed:\n" % suite_name)
-            self.errs.write(str(failure) + "\n\n")
+            self.errs.write(str(err) + "\n\n")
 
         if count_succ == len(self.results):
             msg = "%d tests processed successfully in %0.1f seconds.\n" % (
@@ -405,8 +406,7 @@ class CursesReporter(Reporter):
 
     def renderResultLine(self, result, tname, tdesc, errmsg=None,
                          filename=None, lineno=None):
-        # FIXME: retrieve terminal width from curses!
-        columns = 80
+        columns = self.COLUMNS
         rest = columns
 
         # first 7 chars for the result
@@ -427,11 +427,14 @@ class CursesReporter(Reporter):
 
         right = ""
         if filename and lineno:
-            # FIXME: assumes no more than 99999 line numbers
-            rest -= len(filename) + 9
-            right = " %s:%05d" % (filename, lineno)
+            if len(filename) > 20:
+                filename = ".." + filename[-17:]
+            add = " %s:%d" % (filename, lineno)
+            rest -= len(add)
+            right = add
 
         if errmsg and rest > 5:
+            errmsg = errmsg.replace("\n", " ")
             if len(errmsg) > rest:
                 errmsg = " " + errmsg[:rest-4] + ".."
                 rest = 0
@@ -449,14 +452,14 @@ class CursesReporter(Reporter):
 
         return msg + " " * rest + right
 
-    def stopTest(self, tname, test, result, failure):
+    def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
-        self.results[tname] = (result, failure)
+        self.results[tname] = (result, error)
 
         if result:
             msg = self.renderResultLine("OK", tname, desc)
         else:
-            tb = traceback.extract_tb(failure.getTracebackObject())
+            tb = traceback.extract_tb(error.getTracebackObject())
             try:
                 row = tb.pop()
 
@@ -469,11 +472,11 @@ class CursesReporter(Reporter):
                 filename = row[0]
                 lineno = row[1]
 
-                errmsg = failure.getErrorMessage()
+                errmsg = error.getErrorMessage()
             except IndexError:
                 filename = None
                 lineno = None
-                errmsg = failure.getErrorMessage()
+                errmsg = error.getErrorMessage()
 
             msg = self.renderResultLine("FAILED", tname, desc,
                                         errmsg, filename, lineno)
@@ -499,19 +502,19 @@ class CursesReporter(Reporter):
     def stopTearDownSuite(self, tname, suite):
         self.dropStatusLine("teardown__" + tname)
 
-    def suiteSetUpFailure(self, tname, suite, failure):
-        tb = failure.getTracebackObject()
-        msg = failure.getErrorMessage()
+    def suiteSetUpFailure(self, tname, suite, error):
+        tb = error.getTracebackObject()
+        msg = error.getErrorMessage()
 
         #self.outs.write("# ERROR: %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = failure
+        self.suite_failures[tname] = error
 
-    def suiteTearDownFailure(self, tname, suite, failure):
-        msg = failure.getErrorMessage()
+    def suiteTearDownFailure(self, tname, suite, error):
+        msg = error.getErrorMessage()
         #self.outs.write("# ERROR: %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = failure
+        self.suite_failures[tname] = error
 
 def reporterFactory():
     if sys.stdout.isatty():

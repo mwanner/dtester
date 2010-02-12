@@ -30,7 +30,12 @@ class TestFailure(Exception):
     """ An ordinary test failure, used by the L{BaseTest}'s custom check
         routines like L{BaseTest.assertEqual}.
     """
-    pass
+    def __init__(self, msg, details=""):
+        Exception.__init__(self, msg)
+        self.details = details
+
+    def getDetails(self):
+        return self.details
 
 class UnableToRun(Exception):
     """ Thrown for tests that are unable to start because a dependent suite

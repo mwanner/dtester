@@ -95,13 +95,29 @@ class BaseTest(object):
     def abort(self, *args, **kwargs):
         self._abort(TestAborted(*args, **kwargs))
 
-    def assertEqual(self, a, b):
+    def assertEqual(self, a, b, errmsg, leftdesc=None, rightdesc=None):
         if a != b:
-            raise TestFailure("%s != %s" % (repr(a), repr(b)))
+            if isinstance(a, str) and isinstance(b, str):
+                if "\n" in a or "\n" in b:
+                    import difflib
+                    a = a.split("\n")
+                    b = b.split("\n")
+                    kwargs = {'lineterm': ""}
+                    if leftdesc:
+                        kwargs['fromfile'] = leftdesc
+                    if rightdesc:
+                        kwargs['tofile'] = rightdesc
+                    diff = list(difflib.context_diff(a, b, **kwargs))
+                    if not leftdesc and not rightdesc:
+                        diff = diff[2:]
+                    details = "\n".join(diff)
+                    raise TestFailure(errmsg, details)
 
-    def assertNotEqual(self, a, b):
+            raise TestFailure(errmsg, "%s != %s" % (repr(a), repr(b)))
+
+    def assertNotEqual(self, a, b, errmsg):
         if a == b:
-            raise TestFailure("%s == %s" % (repr(a), repr(b)))
+            raise TestFailure(errmsg, "%s == %s" % (repr(a), repr(b)))
 
     def addNestedTests(self, tdef):
         self.runner.addNestedTests(self, tdef)
