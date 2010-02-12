@@ -85,7 +85,7 @@ class StreamReporter(Reporter):
             ratio = float(count_succ) / float(len(self.results)) * 100
             msg = "%d of %d tests succeeded (%0.1f%%), " % (
                     count_succ, len(self.results), ratio) + \
-		"processed in %0.1f seconds.\n" % (
+                  "processed in %0.1f seconds.\n" % (
                     (self.t_end - self.t_start,))
         self.outs.write(msg)
         self.outs.flush()
@@ -167,7 +167,7 @@ class TapReporter(Reporter):
         # map test names to TAP numbers
         self.numberMapping = {}
         nr = 0
-	for (tname, tdef) in tdefs.iteritems():
+        for (tname, tdef) in tdefs.iteritems():
             if issubclass(tdef['class'], BaseTest) and \
                     not issubclass(tdef['class'], TestSuite):
                 nr += 1
@@ -194,7 +194,7 @@ class TapReporter(Reporter):
             ratio = float(count_succ) / float(len(self.results)) * 100
             msg = "# %d of %d tests succeeded (%0.1f%%), " % (
                     count_succ, len(self.results), ratio) + \
-		"processed in %0.1f seconds.\n" % (
+                  "processed in %0.1f seconds.\n" % (
                     (self.t_end - self.t_start,))
         self.outs.write(msg)
         self.outs.flush()
@@ -392,7 +392,7 @@ class CursesReporter(Reporter):
             ratio = float(count_succ) / float(len(self.results)) * 100
             msg = "%d of %d tests succeeded (%0.1f%%), " % (
                     count_succ, len(self.results), ratio) + \
-		"processed in %0.1f seconds.\n" % (
+                  "processed in %0.1f seconds.\n" % (
                     (self.t_end - self.t_start,))
 
         self.outs.write(msg)
@@ -455,8 +455,6 @@ class CursesReporter(Reporter):
 
         if result:
             msg = self.renderResultLine("OK", tname, desc)
-            #msg = self.COLOR_GREEN + "OK" + self.NORMAL + "      %s (%s)" % (
-			#	tname, desc)
         else:
             tb = traceback.extract_tb(failure.getTracebackObject())
             try:
