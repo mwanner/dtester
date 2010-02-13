@@ -107,22 +107,25 @@ class Runner:
     """ The core test runner, which schedules the start and stop of all tests
         and test suites.
     """
-    def __init__(self, reporter=None, testTimeout=15, suiteTimeout=60):
+    def __init__(self, reporter=None, testTimeout=15, suiteTimeout=60, controlReactor=True):
         self.reporter = reporter or reporterFactory()
         self.test_states = {}
         self.testTimeout = testTimeout
         self.suiteTimeout = suiteTimeout
+        self.controlReactor = controlReactor
 
     def processCmdListFinished(self, result):
         for name, state in self.test_states.iteritems():
             if state.tStatus != 'done':
                 print "unfinished test: %s: %s" % (name, state.tStatus)
         self.reporter.end(True, None)
-        reactor.stop()
+        if self.controlReactor:
+            reactor.stop()
 
     def processCmdListFailed(self, error):
         self.reporter.end(False, error)
-        reactor.stop()
+        if self.controlReactor:
+            reactor.stop()
 
     def cbSuiteSetUp(self, result, suite_name, suite):
         self.test_states[suite_name].tStatus = 'running'
@@ -329,6 +332,7 @@ class Runner:
 
         d = defer.maybeDeferred(self.iterate, None)
         d.addCallback(self.processCmdListFinished)
+        return d
 
     def iterate(self, result):
         (runnableTests, terminatableTests, runningTests) = \
@@ -436,4 +440,6 @@ class Runner:
     def run(self, tdef, config):
         system = InitialSuite(self, config=config, env=copy.copy(os.environ))
         reactor.callLater(0, self.processCmdList, tdef, system)
-        reactor.run()
+        if self.controlReactor:
+            reactor.run()
+
