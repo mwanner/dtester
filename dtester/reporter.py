@@ -13,7 +13,8 @@ import sys, time, traceback
 from twisted.internet import defer
 from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
-from dtester.exceptions import TestFailure
+from dtester.exceptions import TestFailure, TimeoutError
+
 
 class Reporter:
     """ An abstract base class for all reporters.
@@ -72,7 +73,13 @@ class Reporter:
             if inner_err.getDetails():
                 msg += "-" * 20 + "\n"
                 msg += inner_err.getDetails() + "\n"
-            self.errs.write(msg + "\n")
+            msg += "\n\n"
+            self.errs.write(msg)
+        elif isinstance(inner_err, TimeoutError):
+            msg = "=" * 20 + "\n"
+            msg += "Test %s timed out.\n" % (tname,)
+            msg += "\n\n"
+            self.errs.write(msg)            
         else:
             msg = "=" * 20 + "\n"
             msg += "Error in test %s:\n" % (tname,)
@@ -446,6 +453,8 @@ class CursesReporter(Reporter):
             msg = self.COLOR_GREEN + "     OK" + self.NORMAL
         elif result == "FAILED":
             msg = self.COLOR_RED + " FAILED" + self.NORMAL
+        elif result == "TIMEOUT":
+            msg = self.COLOR_RED + "TIMEOUT" + self.NORMAL
         elif result == "SKIPPED":
             msg = self.COLOR_BLUE + "SKIPPED" + self.NORMAL
         else:
@@ -486,8 +495,14 @@ class CursesReporter(Reporter):
         desc = self.getDescription(test)
         self.results[tname] = (result, error)
 
+        isTimeoutError = isinstance(error, TimeoutError)
+        if isinstance(error, FirstError):
+            isTimeout = isinstance(error.sub_failure, TimeoutError)
+
         if result:
             msg = self.renderResultLine("OK", tname, desc)
+        elif isTimeoutError:
+            msg = self.renderResultLine("TIMEOUT", tname, desc)
         else:
             tb = traceback.extract_tb(error.getTracebackObject())
             try:
