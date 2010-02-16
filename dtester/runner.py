@@ -391,14 +391,15 @@ class Runner:
 
     def trapUnableToRun(self, error, tname, t):
         r = error.trap(UnableToRun)
-        print "unable to run test %s" % (tname,)
-        t.tStatus = 'failed'
+        t.tStatus = 'done'
+        t.failure = result
+        # FIXME: report that failure via the reporter
         return None
 
     def testStartupFailed(self, error, tname, t):
-        print "startup of test %s failed, skipping.\n" % (tname,)
-        error.printTraceback()
-        t.tStatus = 'failed'
+        t.tStatus = 'done'
+        t.failure = error
+        # FIXME: report that failure via the reporter
         return None
 
     def checkDependencies(self):

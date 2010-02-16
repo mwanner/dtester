@@ -58,6 +58,15 @@ class Reporter:
                     suite, e)
             return desc
 
+    def getInnerError(self, error):
+        while True:
+            if isinstance(error, failure.Failure):
+                error = error.value
+            elif isinstance(error, defer.FirstError):
+                error = error.subFailure
+            else:
+                return error
+
     def dumpError(self, tname, err):
         assert isinstance(err, failure.Failure)
         inner_err = err.value
@@ -130,14 +139,22 @@ class StreamReporter(Reporter):
         self.outs.flush()
 
     def startTest(self, tname, test):
-        self.outs.write("        %s: test started\n" % (tname,))
+        self.outs.write("         %s: test started\n" % (tname,))
         self.outs.flush()
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
         self.results[tname] = (result, error)
+
+        isTimeoutError = False
+        if not result:
+            inner_error = self.getInnerError(error)
+            isTimeoutError = isinstance(inner_error, TimeoutError)
+
         if result:
-            msg = "OK:     %s: %s\n" % (tname, desc)
+            msg = "OK:      %s: %s\n" % (tname, desc)
+        elif isTimeoutError:
+            msg = "TIMEOUT: %s: %s\n" % (tname, desc)
         else:
             tb = traceback.extract_tb(error.getTracebackObject())
             try:
@@ -153,18 +170,18 @@ class StreamReporter(Reporter):
                 lineno = row[1]
 
                 errmsg = error.getErrorMessage()
-                msg = "FAILED: %s: %s - %s in %s:%d\n" % (
+                msg = "FAILED:  %s: %s - %s in %s:%d\n" % (
                     tname, desc, errmsg, filename, lineno)
             except IndexError:
                 errmsg = error.getErrorMessage()
-                msg = "FAILED: %s %s - %s" % (tname, desc, errmsg)
+                msg = "FAILED:  %s %s - %s" % (tname, desc, errmsg)
 
         self.outs.write(msg)
         self.outs.flush()
 
     def startSetUpSuite(self, tname, suite):
         desc = self.getDescription(suite, "setUp")
-        self.outs.write("        %s: %s\n" % (tname, desc))
+        self.outs.write("         %s: %s\n" % (tname, desc))
         self.outs.flush()
 
     def stopSetUpSuite(self, tname, suite):
@@ -172,7 +189,7 @@ class StreamReporter(Reporter):
 
     def startTearDownSuite(self, tname, suite):
         desc = self.getDescription(suite, "tearDown")
-        self.outs.write("        %s: %s\n" % (tname, desc))
+        self.outs.write("         %s: %s\n" % (tname, desc))
         self.outs.flush()
 
     def stopSetUpSuite(self, tname, suite):
@@ -182,13 +199,13 @@ class StreamReporter(Reporter):
         tb = error.getTracebackObject()
         msg = error.getErrorMessage()
 
-        self.outs.write("ERROR:  %s: failed setting up: %s\n" % (tname, msg))
+        self.outs.write("ERROR:   %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
         self.suite_failures[tname] = error
 
     def suiteTearDownFailure(self, tname, suite, error):
         msg = error.getErrorMessage()
-        self.outs.write("ERROR:  %s: failed tearing down\n" % (tname, msg))
+        self.outs.write("ERROR:   %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
         self.suite_failures[tname] = error
 
@@ -495,9 +512,10 @@ class CursesReporter(Reporter):
         desc = self.getDescription(test)
         self.results[tname] = (result, error)
 
-        isTimeoutError = isinstance(error, TimeoutError)
-        if isinstance(error, defer.FirstError):
-            isTimeout = isinstance(error.sub_failure, TimeoutError)
+        isTimeoutError = False
+        if not result:
+            inner_error = self.getInnerError(error)
+            isTimeoutError = isinstance(inner_error, TimeoutError)
 
         if result:
             msg = self.renderResultLine("OK", tname, desc)
