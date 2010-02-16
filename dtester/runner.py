@@ -441,7 +441,8 @@ class Runner:
 
     def run(self, tdef, config):
         system = InitialSuite(self, config=config, env=copy.copy(os.environ))
-        reactor.callLater(0, self.processCmdList, tdef, system)
         if self.controlReactor:
+            reactor.callLater(0, self.processCmdList, tdef, system)
             reactor.run()
-
+        else:
+            return self.processCmdList(tdef, system)
