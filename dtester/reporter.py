@@ -496,7 +496,7 @@ class CursesReporter(Reporter):
         self.results[tname] = (result, error)
 
         isTimeoutError = isinstance(error, TimeoutError)
-        if isinstance(error, FirstError):
+        if isinstance(error, defer.FirstError):
             isTimeout = isinstance(error.sub_failure, TimeoutError)
 
         if result:
