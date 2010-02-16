@@ -16,7 +16,7 @@ from twisted.internet import defer, reactor
 
 from dtester.test import Timeout, BaseTest, TestSuite
 from dtester.processes import SimpleProcess
-from dtester.exceptions import TimeoutError, UnableToRun
+from dtester.exceptions import TimeoutError, UnableToRun, DefinitionError
 from dtester.reporter import reporterFactory
 
 class TestState:
@@ -169,12 +169,14 @@ class Runner:
 
     def startupTest(self, tname, tclass, needs, args, deps):
         if not len(needs) == len(tclass.needs):
-            raise Exception("Test class %s has %d needs, but %d were specified." % (
-                repr(tclass), len(tclass.needs), len(needs)))
+            raise DefinitionError("missing dependencies", 
+                "Test class %s has %d dependencies, but %d were specified for %s." % (
+                tclass.__class__.__name__, len(tclass.needs), len(needs), tname))
 
         if not len(args) == len(tclass.args):
-            raise Exception("Test class %s has %d arguments, but %d were specified." % (
-                repr(tclass), len(tclass.args), len(args)))
+            raise DefinitionError("missing arguments", 
+                "Test class %s has %d arguments, but %d were specified for %s." % (
+                tclass.__class__.__name__, len(tclass.args), len(args), tname))
 
         assert(len(needs) == len(tclass.needs))
         assert(len(args) == len(tclass.args))
@@ -192,7 +194,7 @@ class Runner:
                 else:
                     raise Exception("error starting %s: test_states says %s is running, but it's not!" % (tname, needs[i]))
             else:
-                raise UnableToRun("error starting %s: unable to run" % tname)
+                raise UnableToRun("error starting %s: unable to run, due to dependency on %s" % (tname, needs[i]))
 
         for i in range(len(args)):
             kwargs[tclass.args[i][0]] = args[i]

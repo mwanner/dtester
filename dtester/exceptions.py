@@ -37,6 +37,16 @@ class TestFailure(Exception):
     def getDetails(self):
         return self.details
 
+class DefinitionError(TestFailure):
+    """ Used for all errors in the test definition.
+    """
+    def __init__(self, msg, details=""):
+        Exception.__init__(self, msg)
+        self.details = details
+
+    def getDetails(self):
+        return self.details
+
 class UnableToRun(Exception):
     """ Thrown for tests that are unable to start because a dependent suite
         or test failed to setup or run.
