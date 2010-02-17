@@ -9,7 +9,7 @@
 reporting of progress and test results
 """
 
-import sys, time, traceback
+import sys, traceback
 from twisted.internet import defer
 from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
@@ -107,6 +107,10 @@ class Reporter:
         for suite_name, err in self.suite_failures.iteritems():
             self.dumpError(suite_name, err)
 
+    def harnessFailure(self):
+        self.errs.write("Failed running the test harness:\n")
+        error.printBriefTraceback(self.errs)
+
 
 class StreamReporter(Reporter):
     """ A simple, human readable stream reporter without any bells and
@@ -114,27 +118,21 @@ class StreamReporter(Reporter):
     """
 
     def begin(self, tdef):
-        self.t_start = time.time()
+        pass
 
-    def end(self, result, error):
+    def end(self, t_diff, count_total, count_succ):
         self.dumpErrors()
-
-        self.t_end = time.time()
-
-        count_succ = 0
-        for tname, (result, err) in self.results.iteritems():
-            if result:
-                count_succ += 1
 
         if count_succ == len(self.results):
             msg = "%d tests processed successfully in %0.1f seconds.\n" % (
-                count_succ, (self.t_end - self.t_start))
+                count_succ, t_diff)
         else:
-            ratio = float(count_succ) / float(len(self.results)) * 100
+            ratio = float(count_succ) / float(count_total) * 100
             msg = "%d of %d tests succeeded (%0.1f%%), " % (
-                    count_succ, len(self.results), ratio) + \
+                    count_succ, count_total, ratio) + \
                   "processed in %0.1f seconds.\n" % (
-                    (self.t_end - self.t_start,))
+                    (t_diff,))
+
         self.outs.write(msg)
         self.outs.flush()
 
@@ -192,7 +190,7 @@ class StreamReporter(Reporter):
         self.outs.write("         %s: %s\n" % (tname, desc))
         self.outs.flush()
 
-    def stopSetUpSuite(self, tname, suite):
+    def stopTearDownSuite(self, tname, suite):
         pass
 
     def suiteSetUpFailure(self, tname, suite, error):
@@ -218,8 +216,6 @@ class TapReporter(Reporter):
     """
 
     def begin(self, tdefs):
-        self.t_start = time.time()
-
         # map test names to TAP numbers
         self.numberMapping = {}
         nr = 0
@@ -231,27 +227,17 @@ class TapReporter(Reporter):
         self.outs.write("TAP version 13\n")
         self.outs.write("1..%d\n" % nr)
 
-    def end(self, result, error):
-        self.t_end = time.time()
-
-        count_succ = 0
-        for tname, (result, error) in self.results.iteritems():
-            if result:
-                count_succ += 1
-
-        #for suite_name, err in self.suite_failures.iteritems():
-        #    self.errs.write("Suite %s failed:\n" % suite_name)
-        #    self.errs.write(str(err) + "\n\n")
-
+    def end(self, t_diff, count_total, count_succ):
         if count_succ == len(self.results):
             msg = "# %d tests processed successfully in %0.1f seconds.\n" % (
-                count_succ, (self.t_end - self.t_start))
+                count_succ, t_diff)
         else:
-            ratio = float(count_succ) / float(len(self.results)) * 100
+            ratio = float(count_succ) / float(count_total) * 100
             msg = "# %d of %d tests succeeded (%0.1f%%), " % (
-                    count_succ, len(self.results), ratio) + \
+                    count_succ, count_total, ratio) + \
                   "processed in %0.1f seconds.\n" % (
-                    (self.t_end - self.t_start,))
+                    (t_diff,))
+
         self.outs.write(msg)
         self.outs.flush()
 
@@ -428,27 +414,20 @@ class CursesReporter(Reporter):
         return out
 
     def begin(self, tdefs):
-        self.t_start = time.time()
+        pass
 
-    def end(self, result, error):
+    def end(self, t_diff, count_total, count_succ):
         self.dumpErrors()
-
-        self.t_end = time.time()
-
-        count_succ = 0
-        for tname, (result, error) in self.results.iteritems():
-            if result:
-                count_succ += 1
 
         if count_succ == len(self.results):
             msg = "%d tests processed successfully in %0.1f seconds.\n" % (
-                count_succ, (self.t_end - self.t_start))
+                count_succ, t_diff)
         else:
             ratio = float(count_succ) / float(len(self.results)) * 100
             msg = "%d of %d tests succeeded (%0.1f%%), " % (
                     count_succ, len(self.results), ratio) + \
                   "processed in %0.1f seconds.\n" % (
-                    (self.t_end - self.t_start,))
+                    (t_diff,))
 
         self.outs.write(msg)
         self.outs.flush()

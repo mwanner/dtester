@@ -10,7 +10,7 @@ scheduling of tests and test suites, running them in parallel based on an
 asynchronous event loop using twisted.
 """
 
-import os, copy
+import os, copy, time
 from twisted.python import failure
 from twisted.internet import defer, reactor
 
@@ -115,15 +115,26 @@ class Runner:
         self.controlReactor = controlReactor
 
     def processCmdListFinished(self, result):
+        count_total = 0
+        count_succ = 0
+        results = []
         for name, state in self.test_states.iteritems():
             if state.tStatus != 'done':
                 print "unfinished test: %s: %s" % (name, state.tStatus)
-        self.reporter.end(True, None)
+
+            if not state.failure:
+                count_succ += 1
+
+            count_total += 1
+
+        t_diff = time.time() - self.t_start
+        self.reporter.end(t_diff, count_total, count_succ)
+
         if self.controlReactor:
             reactor.stop()
 
     def processCmdListFailed(self, error):
-        self.reporter.end(False, error)
+        self.reporter.harnessFailure(error)
         if self.controlReactor:
             reactor.stop()
 
@@ -275,6 +286,7 @@ class Runner:
         #print "depends on: %s" % depname
 
     def processCmdList(self, tdef, system):
+        self.t_start = time.time()
         self.reporter.begin(tdef)
 
         # essentially copy the test definitions into our own
