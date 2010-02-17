@@ -29,9 +29,6 @@ class Reporter:
         self.outs = outs
         self.errs = errs
 
-        self.results = {}
-        self.suite_failures = {}
-
     def getDescription(self, suite, attname=None):
         """ @return: the test's description or that of one of its methods,
                      i.e. the setUpDescription.
@@ -99,13 +96,9 @@ class Reporter:
             err.printBriefTraceback(self.errs)
             self.errs.write("\n")
 
-    def dumpErrors(self):
-        for tname, (result, err) in self.results.iteritems():
-            if not result:
-                self.dumpError(tname, err)
-
-        for suite_name, err in self.suite_failures.iteritems():
-            self.dumpError(suite_name, err)
+    def dumpErrors(self, errors):
+        for (name, error) in errors:
+            self.dumpError(name, error)
 
     def harnessFailure(self):
         self.errs.write("Failed running the test harness:\n")
@@ -120,18 +113,17 @@ class StreamReporter(Reporter):
     def begin(self, tdef):
         pass
 
-    def end(self, t_diff, count_total, count_succ):
-        self.dumpErrors()
+    def end(self, t_diff, count_total, count_succ, errors):
+        self.dumpErrors(errors)
 
-        if count_succ == len(self.results):
+        if count_succ == count_total:
             msg = "%d tests processed successfully in %0.1f seconds.\n" % (
                 count_succ, t_diff)
         else:
             ratio = float(count_succ) / float(count_total) * 100
             msg = "%d of %d tests succeeded (%0.1f%%), " % (
                     count_succ, count_total, ratio) + \
-                  "processed in %0.1f seconds.\n" % (
-                    (t_diff,))
+                  "processed in %0.1f seconds.\n" % (t_diff,)
 
         self.outs.write(msg)
         self.outs.flush()
@@ -142,7 +134,6 @@ class StreamReporter(Reporter):
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
-        self.results[tname] = (result, error)
 
         isTimeoutError = False
         if not result:
@@ -199,13 +190,11 @@ class StreamReporter(Reporter):
 
         self.outs.write("ERROR:   %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = error
 
     def suiteTearDownFailure(self, tname, suite, error):
         msg = error.getErrorMessage()
         self.outs.write("ERROR:   %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = error
 
 
 class TapReporter(Reporter):
@@ -227,16 +216,15 @@ class TapReporter(Reporter):
         self.outs.write("TAP version 13\n")
         self.outs.write("1..%d\n" % nr)
 
-    def end(self, t_diff, count_total, count_succ):
-        if count_succ == len(self.results):
+    def end(self, t_diff, count_total, count_succ, errors):
+        if count_succ == count_total:
             msg = "# %d tests processed successfully in %0.1f seconds.\n" % (
                 count_succ, t_diff)
         else:
             ratio = float(count_succ) / float(count_total) * 100
             msg = "# %d of %d tests succeeded (%0.1f%%), " % (
                     count_succ, count_total, ratio) + \
-                  "processed in %0.1f seconds.\n" % (
-                    (t_diff,))
+                  "processed in %0.1f seconds.\n" % (t_diff,)
 
         self.outs.write(msg)
         self.outs.flush()
@@ -247,7 +235,6 @@ class TapReporter(Reporter):
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
-        self.results[tname] = (result, error)
         if result:
             msg = "ok %d - %s: %s\n" % (
                 self.numberMapping[tname], tname, desc)
@@ -298,13 +285,11 @@ class TapReporter(Reporter):
 
         self.outs.write("# ERROR: %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = error
 
     def suiteTearDownFailure(self, tname, suite, error):
         msg = error.getErrorMessage()
         self.outs.write("# ERROR: %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = error
 
 
 class CursesReporter(Reporter):
@@ -416,18 +401,17 @@ class CursesReporter(Reporter):
     def begin(self, tdefs):
         pass
 
-    def end(self, t_diff, count_total, count_succ):
-        self.dumpErrors()
+    def end(self, t_diff, count_total, count_succ, errors):
+        self.dumpErrors(errors)
 
-        if count_succ == len(self.results):
+        if count_succ == count_total:
             msg = "%d tests processed successfully in %0.1f seconds.\n" % (
                 count_succ, t_diff)
         else:
-            ratio = float(count_succ) / float(len(self.results)) * 100
+            ratio = float(count_succ) / float(count_total) * 100
             msg = "%d of %d tests succeeded (%0.1f%%), " % (
-                    count_succ, len(self.results), ratio) + \
-                  "processed in %0.1f seconds.\n" % (
-                    (t_diff,))
+                    count_succ, count_total, ratio) + \
+                  "processed in %0.1f seconds.\n" % (t_diff,)
 
         self.outs.write(msg)
         self.outs.flush()
@@ -489,7 +473,6 @@ class CursesReporter(Reporter):
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
-        self.results[tname] = (result, error)
 
         isTimeoutError = False
         if not result:
@@ -550,13 +533,11 @@ class CursesReporter(Reporter):
 
         #self.outs.write("# ERROR: %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = error
 
     def suiteTearDownFailure(self, tname, suite, error):
         msg = error.getErrorMessage()
         #self.outs.write("# ERROR: %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
-        self.suite_failures[tname] = error
 
 def reporterFactory():
     if sys.stdout.isatty():

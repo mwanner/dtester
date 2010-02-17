@@ -117,18 +117,20 @@ class Runner:
     def processCmdListFinished(self, result):
         count_total = 0
         count_succ = 0
-        results = []
+        errors = []
         for name, state in self.test_states.iteritems():
             if state.tStatus != 'done':
                 print "unfinished test: %s: %s" % (name, state.tStatus)
 
-            if not state.failure:
+            if state.failure:
+                errors.append((name, state.failure))
+            else:
                 count_succ += 1
 
             count_total += 1
 
         t_diff = time.time() - self.t_start
-        self.reporter.end(t_diff, count_total, count_succ)
+        self.reporter.end(t_diff, count_total, count_succ, errors)
 
         if self.controlReactor:
             reactor.stop()
@@ -172,6 +174,7 @@ class Runner:
 
     def cbTestFailed(self, error, tname, test):
         self.test_states[tname].tStatus = 'done'
+        self.test_states[tname].failure = error
         self.reporter.stopTest(tname, test, False, error)
         return (False, error)
 
@@ -404,7 +407,7 @@ class Runner:
     def trapUnableToRun(self, error, tname, t):
         r = error.trap(UnableToRun)
         t.tStatus = 'done'
-        t.failure = result
+        t.failure = error
         # FIXME: report that failure via the reporter
         return None
 
