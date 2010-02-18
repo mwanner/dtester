@@ -16,7 +16,7 @@ from twisted.internet import defer, reactor
 
 from dtester.test import Timeout, BaseTest, TestSuite
 from dtester.processes import SimpleProcess
-from dtester.exceptions import TimeoutError, UnableToRun, DefinitionError
+from dtester.exceptions import TimeoutError, UnableToRun, DefinitionError, TestSkipped
 from dtester.reporter import reporterFactory
 
 class TestState:
@@ -123,7 +123,9 @@ class Runner:
                 print "unfinished test: %s: %s" % (name, state.tStatus)
 
             if state.failure:
-                errors.append((name, state.failure))
+                inner_error = self.reporter.getInnerError(state.failure)
+                if not isinstance(inner_error, TestSkipped):
+                    errors.append((name, state.failure))
             else:
                 count_succ += 1
 
@@ -150,7 +152,7 @@ class Runner:
         self.test_states[suite_name].tStatus = 'done'
         self.test_states[suite_name].failure = error
         self.reporter.stopSetUpSuite(suite_name, suite)
-        self.reporter.suiteSetUpFailure(suite_name, suite, error)
+        self.reporter.suiteSetUpFailure(suite_name, error)
         return None
 
     def cbSuiteTornDown(self, result, suite_name, suite):
@@ -164,18 +166,18 @@ class Runner:
         self.test_states[suite_name].running = False
         self.test_states[suite_name].failure = error
         self.reporter.stopTearDownSuite(suite_name, suite)
-        self.reporter.suiteTearDownFailure(suite_name, suite, error)
+        self.reporter.suiteTearDownFailure(suite_name, error)
         return None
 
     def cbTestSucceeded(self, result, tname, test):
         self.test_states[tname].tStatus = 'done'
-        self.reporter.stopTest(tname, test, True, None)
+        self.reporter.stopTest(tname, test, "OK", None)
         return (True, None)
 
     def cbTestFailed(self, error, tname, test):
         self.test_states[tname].tStatus = 'done'
         self.test_states[tname].failure = error
-        self.reporter.stopTest(tname, test, False, error)
+        self.reporter.stopTest(tname, test, "FAILED", error)
         return (False, error)
 
     def cbSleep(self, result, test):
@@ -408,13 +410,15 @@ class Runner:
         r = error.trap(UnableToRun)
         t.tStatus = 'done'
         t.failure = error
-        # FIXME: report that failure via the reporter
+        self.reporter.startTest(tname, t)
+        self.reporter.stopTest(tname, t, "SKIPPED", error)
         return None
 
     def testStartupFailed(self, error, tname, t):
         t.tStatus = 'done'
         t.failure = error
-        # FIXME: report that failure via the reporter
+        self.reporter.startTest(tname, t)
+        self.reporter.stopTest(tname, t, "ERROR", error)
         return None
 
     def checkDependencies(self):
@@ -462,3 +466,4 @@ class Runner:
             reactor.run()
         else:
             return self.processCmdList(tdef, system)
+

@@ -47,8 +47,12 @@ class DefinitionError(TestFailure):
     def getDetails(self):
         return self.details
 
-class UnableToRun(Exception):
+class TestSkipped(Exception):
+    pass
+
+class UnableToRun(TestSkipped):
     """ Thrown for tests that are unable to start because a dependent suite
         or test failed to setup or run.
     """
     pass
+

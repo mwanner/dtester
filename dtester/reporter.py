@@ -13,7 +13,7 @@ import sys, traceback
 from twisted.internet import defer
 from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
-from dtester.exceptions import TestFailure, TimeoutError
+from dtester.exceptions import TestFailure, TimeoutError, TestSkipped
 
 
 class Reporter:
@@ -56,22 +56,21 @@ class Reporter:
             return desc
 
     def getInnerError(self, error):
+        tb = None
         while True:
             if isinstance(error, failure.Failure):
+                tb = error.getTraceback()
                 error = error.value
             elif isinstance(error, defer.FirstError):
                 error = error.subFailure
+                assert isinstance(error, failure.Failure)
             else:
-                return error
+                return (error, tb)
 
     def dumpError(self, tname, err):
         assert isinstance(err, failure.Failure)
-        inner_err = err.value
 
-        # extract FirstError's, as throws from a DeferredList
-        while isinstance(inner_err, defer.FirstError):
-            err = inner_err.subFailure
-            inner_err = err.value
+        (inner_err, tb) = self.getInnerError(err)
 
         if isinstance(inner_err, TestFailure):
             msg = "=" * 20 + "\n"
@@ -79,24 +78,27 @@ class Reporter:
             if inner_err.getDetails():
                 msg += "-" * 20 + "\n"
                 msg += inner_err.getDetails() + "\n"
-            msg += "\n\n"
+            msg += "\n"
             self.errs.write(msg)
         elif isinstance(inner_err, TimeoutError):
             msg = "=" * 20 + "\n"
             msg += "Test %s timed out.\n" % (tname,)
             msg += "\n\n"
-            self.errs.write(msg)            
+            self.errs.write(msg)
+        elif isinstance(inner_err, TestSkipped):
+            return
         else:
             msg = "=" * 20 + "\n"
             msg += "Error in test %s:\n" % (tname,)
             msg += "-" * 20 + "\n"
-            msg += repr(err) + "\n"
+            msg += repr(inner_err) + "\n"
             msg += "-" * 20 + "\n"
+            msg += tb + "\n"
             self.errs.write(msg)
-            err.printBriefTraceback(self.errs)
-            self.errs.write("\n")
 
     def dumpErrors(self, errors):
+        if len(errors) > 0:
+            self.errs.write("\n")
         for (name, error) in errors:
             self.dumpError(name, error)
 
@@ -135,15 +137,10 @@ class StreamReporter(Reporter):
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
 
-        isTimeoutError = False
-        if not result:
-            inner_error = self.getInnerError(error)
-            isTimeoutError = isinstance(inner_error, TimeoutError)
+        msg = result + " " * (7 - len(result)) + ": %s: %s" % (tname, desc)
 
-        if result:
-            msg = "OK:      %s: %s\n" % (tname, desc)
-        elif isTimeoutError:
-            msg = "TIMEOUT: %s: %s\n" % (tname, desc)
+        if result in ("OK", "SKIPPED", "TIMEOUT"):
+            msg += "\n"
         else:
             tb = traceback.extract_tb(error.getTracebackObject())
             try:
@@ -159,11 +156,11 @@ class StreamReporter(Reporter):
                 lineno = row[1]
 
                 errmsg = error.getErrorMessage()
-                msg = "FAILED:  %s: %s - %s in %s:%d\n" % (
+                msg += " - %s in %s:%d\n" % (
                     tname, desc, errmsg, filename, lineno)
             except IndexError:
                 errmsg = error.getErrorMessage()
-                msg = "FAILED:  %s %s - %s" % (tname, desc, errmsg)
+                msg += " - %s" % (tname, desc, errmsg)
 
         self.outs.write(msg)
         self.outs.flush()
@@ -184,14 +181,14 @@ class StreamReporter(Reporter):
     def stopTearDownSuite(self, tname, suite):
         pass
 
-    def suiteSetUpFailure(self, tname, suite, error):
+    def suiteSetUpFailure(self, tname, error):
         tb = error.getTracebackObject()
         msg = error.getErrorMessage()
 
         self.outs.write("ERROR:   %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
 
-    def suiteTearDownFailure(self, tname, suite, error):
+    def suiteTearDownFailure(self, tname, error):
         msg = error.getErrorMessage()
         self.outs.write("ERROR:   %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
@@ -235,7 +232,7 @@ class TapReporter(Reporter):
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
-        if result:
+        if result == "OK":
             msg = "ok %d - %s: %s\n" % (
                 self.numberMapping[tname], tname, desc)
         else:
@@ -279,14 +276,14 @@ class TapReporter(Reporter):
     def stopTearDownSuite(self, tname, suite):
         pass
 
-    def suiteSetUpFailure(self, tname, suite, error):
+    def suiteSetUpFailure(self, tname, error):
         tb = error.getTracebackObject()
         msg = error.getErrorMessage()
 
         self.outs.write("# ERROR: %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
 
-    def suiteTearDownFailure(self, tname, suite, error):
+    def suiteTearDownFailure(self, tname, error):
         msg = error.getErrorMessage()
         self.outs.write("# ERROR: %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
@@ -479,10 +476,8 @@ class CursesReporter(Reporter):
             inner_error = self.getInnerError(error)
             isTimeoutError = isinstance(inner_error, TimeoutError)
 
-        if result:
-            msg = self.renderResultLine("OK", tname, desc)
-        elif isTimeoutError:
-            msg = self.renderResultLine("TIMEOUT", tname, desc)
+        if result in ("OK", "SKIPPED", "TIMEOUT"):
+            msg = self.renderResultLine(result, tname, desc)
         else:
             tb = traceback.extract_tb(error.getTracebackObject())
             try:
@@ -503,7 +498,7 @@ class CursesReporter(Reporter):
                 lineno = None
                 errmsg = error.getErrorMessage()
 
-            msg = self.renderResultLine("FAILED", tname, desc,
+            msg = self.renderResultLine(result, tname, desc,
                                         errmsg, filename, lineno)
 
         self.updateResultLine(tname, msg)
@@ -527,14 +522,14 @@ class CursesReporter(Reporter):
     def stopTearDownSuite(self, tname, suite):
         self.dropStatusLine("teardown__" + tname)
 
-    def suiteSetUpFailure(self, tname, suite, error):
+    def suiteSetUpFailure(self, tname, error):
         tb = error.getTracebackObject()
         msg = error.getErrorMessage()
 
         #self.outs.write("# ERROR: %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
 
-    def suiteTearDownFailure(self, tname, suite, error):
+    def suiteTearDownFailure(self, tname, error):
         msg = error.getErrorMessage()
         #self.outs.write("# ERROR: %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
