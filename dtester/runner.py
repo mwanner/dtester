@@ -30,6 +30,7 @@ class TestState:
         self.running = False
         self.failure = None
         self.suite = None
+        self.xfail = False
 
         self.tStatus = 'unknown'
         self.tDependents = []
@@ -124,7 +125,8 @@ class Runner:
 
             if state.failure:
                 inner_error = self.reporter.getInnerError(state.failure)
-                if not isinstance(inner_error, TestSkipped):
+                # we don't print tracebacks for expected failures no skipped tests
+                if not isinstance(inner_error, TestSkipped) and not self.test_states[name].xfail:
                     errors.append((name, state.failure))
             else:
                 count_succ += 1
@@ -171,13 +173,19 @@ class Runner:
 
     def cbTestSucceeded(self, result, tname, test):
         self.test_states[tname].tStatus = 'done'
-        self.reporter.stopTest(tname, test, "OK", None)
+        if self.test_states[tname].xfail:
+            self.reporter.stopTest(tname, test, "UX-OK", None)
+        else:
+            self.reporter.stopTest(tname, test, "OK", None)
         return (True, None)
 
     def cbTestFailed(self, error, tname, test):
         self.test_states[tname].tStatus = 'done'
         self.test_states[tname].failure = error
-        self.reporter.stopTest(tname, test, "FAILED", error)
+        if self.test_states[tname].xfail:
+            self.reporter.stopTest(tname, test, "XFAIL", error)
+        else:
+            self.reporter.stopTest(tname, test, "FAILED", error)
         return (False, error)
 
     def cbSleep(self, result, test):
@@ -304,6 +312,9 @@ class Runner:
                 self.test_states[name].tArgs = d['args']
 
             self.test_states[name].tStatus = 'waiting'
+
+            if d.has_key('xfail'):
+                self.test_states[name].xfail = d['xfail']
 
         # initialize the initial system suite
         state = TestState(system.__class__, '__system__')

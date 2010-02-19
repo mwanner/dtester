@@ -139,7 +139,7 @@ class StreamReporter(Reporter):
 
         msg = result + " " * (7 - len(result)) + ": %s: %s" % (tname, desc)
 
-        if result in ("OK", "SKIPPED", "TIMEOUT"):
+        if result in ("OK", "SKIPPED", "TIMEOUT", "UX-OK"):
             msg += "\n"
         else:
             tb = traceback.extract_tb(error.getTracebackObject())
@@ -157,7 +157,7 @@ class StreamReporter(Reporter):
 
                 errmsg = error.getErrorMessage()
                 msg += " - %s in %s:%d\n" % (
-                    tname, desc, errmsg, filename, lineno)
+                    errmsg, filename, lineno)
             except IndexError:
                 errmsg = error.getErrorMessage()
                 msg += " - %s" % (tname, desc, errmsg)
@@ -235,6 +235,9 @@ class TapReporter(Reporter):
         if result == "OK":
             msg = "ok %d - %s: %s\n" % (
                 self.numberMapping[tname], tname, desc)
+        elif result  == "UX-OK":
+            msg = "ok %d - %s (UNEXPECTED)\n" % (
+                self.numberMapping[tname], tname)
         else:
             errmsg = error.getErrorMessage()
             tb = traceback.extract_tb(error.getTracebackObject())
@@ -250,8 +253,8 @@ class TapReporter(Reporter):
                 filename = row[0]
                 lineno = row[1]
 
-                msg = "not ok %d - %s: %s # %s in %s:%d\n" % (
-                    self.numberMapping[tname], tname, desc,
+                msg = "not ok %d - %s (%s) # %s in %s:%d\n" % (
+                    self.numberMapping[tname], tname, result,
                     errmsg, filename, lineno)
             except IndexError:
                 msg = "not ok %d - %s: %s # %s\n" % (
@@ -318,14 +321,17 @@ class CursesReporter(Reporter):
             self.COLOR_BLUE = curses.tparm(setf, 1)
             self.COLOR_GREEN = curses.tparm(setf, 2)
             self.COLOR_RED = curses.tparm(setf, 4)
+            self.COLOR_YELLOW = curses.tparm(setf, 3)
         elif setaf:
             self.COLOR_BLUE = curses.tparm(setaf, 4)
             self.COLOR_GREEN = curses.tparm(setaf, 2)
             self.COLOR_RED = curses.tparm(setaf, 1)
+            self.COLOR_YELLOW = curses.tparm(setaf, 5)  ## ??
         else:
             self.COLOR_BLUE = ""
             self.COLOR_GREEN = ""
             self.COLOR_RED = ""
+            self.COLOR_YELLOW = ""
 
         # the lines themselves, by test name
         self.lines = {}
@@ -424,22 +430,21 @@ class CursesReporter(Reporter):
         rest = columns
 
         # first 7 chars for the result
-        if result == "running":
-            msg = "running"
-        elif result == "OK":
-            msg = self.COLOR_GREEN + "     OK" + self.NORMAL
-        elif result == "FAILED":
-            msg = self.COLOR_RED + " FAILED" + self.NORMAL
-        elif result == "TIMEOUT":
-            msg = self.COLOR_RED + "TIMEOUT" + self.NORMAL
-        elif result == "SKIPPED":
-            msg = self.COLOR_BLUE + "SKIPPED" + self.NORMAL
-        else:
-            raise Exception("unknown result: '%s'" % result)
+        color = ""
+        if result == "OK":
+            color = self.COLOR_GREEN
+        elif result in ("FAILED", "TIMEOUT"):
+            color = self.COLOR_RED
+        elif result in ("SKIPPED", "XFAIL"):
+            color = self.COLOR_BLUE
+        elif result == "UX-OK":
+            color = self.COLOR_YELLOW
+
+        msg = " " * (8 - len(result)) + color + result + self.NORMAL
 
         # add the test name
         msg += " " + tname + ": "
-        rest = columns - 3 - 7 - len(tname)
+        rest = columns - 3 - 8 - len(tname)
 
         right = ""
         if filename and lineno:
@@ -476,7 +481,7 @@ class CursesReporter(Reporter):
             inner_error = self.getInnerError(error)
             isTimeoutError = isinstance(inner_error, TimeoutError)
 
-        if result in ("OK", "SKIPPED", "TIMEOUT"):
+        if result in ("OK", "SKIPPED", "TIMEOUT", "UX-OK"):
             msg = self.renderResultLine(result, tname, desc)
         else:
             tb = traceback.extract_tb(error.getTracebackObject())
