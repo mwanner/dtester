@@ -465,7 +465,7 @@ class CursesReporter(Reporter):
                 rest -= len(errmsg) + 1
             right = errmsg + " " + right
 
-        if desc and rest > 5:
+        if tdesc and rest > 5:
             if len(tdesc) > rest:
                 tdesc = tdesc[:rest-3] + ".."
                 rest = 0
