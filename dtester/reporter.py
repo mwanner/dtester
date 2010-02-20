@@ -137,7 +137,9 @@ class StreamReporter(Reporter):
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
 
-        msg = result + " " * (7 - len(result)) + ": %s: %s" % (tname, desc)
+        msg = result + " " * (7 - len(result)) + ": " + tname
+        if desc:
+            msg += ": " + desc
 
         if result in ("OK", "SKIPPED", "TIMEOUT", "UX-OK"):
             msg += "\n"
@@ -463,7 +465,7 @@ class CursesReporter(Reporter):
                 rest -= len(errmsg) + 1
             right = errmsg + " " + right
 
-        if rest > 5:
+        if desc and rest > 5:
             if len(tdesc) > rest:
                 tdesc = tdesc[:rest-3] + ".."
                 rest = 0
