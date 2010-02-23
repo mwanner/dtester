@@ -9,7 +9,7 @@
 reporting of progress and test results
 """
 
-import sys, traceback
+import os, sys, traceback
 from twisted.internet import defer
 from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
@@ -154,7 +154,8 @@ class StreamReporter(Reporter):
                 while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
                     row = tb.pop()
 
-                filename = row[0]
+                commonpath = os.path.commonprefix((row[0], os.getcwd()))
+                filename = row[0][len(commonpath) + 1:]
                 lineno = row[1]
 
                 errmsg = error.getErrorMessage()
@@ -252,7 +253,8 @@ class TapReporter(Reporter):
                 while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
                     row = tb.pop()
 
-                filename = row[0]
+                commonpath = os.path.commonprefix((row[0], os.getcwd()))
+                filename = row[0][len(commonpath) + 1:]
                 lineno = row[1]
 
                 msg = "not ok %d - %s (%s) # %s in %s:%d\n" % (
@@ -496,7 +498,8 @@ class CursesReporter(Reporter):
                 while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
                     row = tb.pop()
 
-                filename = row[0]
+                commonpath = os.path.commonprefix((row[0], os.getcwd()))
+                filename = row[0][len(commonpath) + 1:]
                 lineno = row[1]
 
                 errmsg = error.getErrorMessage()
