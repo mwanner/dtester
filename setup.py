@@ -1,4 +1,4 @@
-from distutils.core import setup
+from setuptools import setup, find_packages
 
 setup(
     name    = "dtester",
@@ -8,6 +8,7 @@ setup(
     author_email = "markus@bluegap.ch",
     url = "http://www.bluegap.ch/projects/dtester",
     license = "Boost Software License v1.0 (BSD like)",
-    packages = ["dtester"],
+    packages = find_packages(),
+    install_requires = ["Twisted >= 2.4.0", "setuptools"],
 )
 
