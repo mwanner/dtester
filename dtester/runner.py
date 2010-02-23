@@ -121,7 +121,9 @@ class Runner:
         errors = []
         for name, state in self.test_states.iteritems():
             if state.tStatus != 'done':
-                print "unfinished test: %s: %s" % (name, state.tStatus)
+                # FIXME: if we'd track dependencies correctly, this should
+                #        not happen.
+                self.reporter.stopTest(name, None, "SKIPPED", None)
 
             if state.failure:
                 inner_error = self.reporter.getInnerError(state.failure)
@@ -160,15 +162,17 @@ class Runner:
     def cbSuiteTornDown(self, result, suite_name, suite):
         self.test_states[suite_name].tStatus = 'done'
         self.test_states[suite_name].running = False
-        self.reporter.stopTearDownSuite(suite_name, suite)
+        if suite_name != "__system__":
+            self.reporter.stopTearDownSuite(suite_name, suite)
         return None
 
     def ebSuiteTearDownFailed(self, error, suite_name, suite):
         self.test_states[suite_name].tStatus = 'done'
         self.test_states[suite_name].running = False
         self.test_states[suite_name].failure = error
-        self.reporter.stopTearDownSuite(suite_name, suite)
-        self.reporter.suiteTearDownFailure(suite_name, error)
+        if suite_name != "__system__":
+            self.reporter.stopTearDownSuite(suite_name, suite)
+            self.reporter.suiteTearDownFailure(suite_name, error)
         return None
 
     def cbTestSucceeded(self, result, tname, test):
@@ -270,7 +274,8 @@ class Runner:
         assert self.test_states[tname].isRunning()
 
         suite = state.getSuite()
-        self.reporter.startTearDownSuite(tname, suite)
+        if tname != "__system__":
+            self.reporter.startTearDownSuite(tname, suite)
 
         to = Timeout("suite timeout", self.suiteTimeout,
                     defer.maybeDeferred(suite._tearDown))
@@ -414,21 +419,18 @@ class Runner:
             return d
             # return defer.DeferredList(dl)
 
-        print "returning none"
         return None
 
     def trapUnableToRun(self, error, tname, t):
         r = error.trap(UnableToRun)
         t.tStatus = 'done'
         t.failure = error
-        self.reporter.startTest(tname, t)
         self.reporter.stopTest(tname, t, "SKIPPED", error)
         return None
 
     def testStartupFailed(self, error, tname, t):
         t.tStatus = 'done'
         t.failure = error
-        self.reporter.startTest(tname, t)
         self.reporter.stopTest(tname, t, "ERROR", error)
         return None
 

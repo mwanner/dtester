@@ -37,13 +37,15 @@ class Reporter:
         #
         # We either have a someThingDescription attribute or the main test's
         # description attribute (note the lower case there).
+        if not suite:
+            return None
         if attname:
             attname += "Description"
         else:
             attname = "description"
         if not hasattr(suite, attname):
             # raise Exception("Test %s misses attribute %s." % (suite, attname))
-            return "no desc"
+            return None
         attr = getattr(suite, attname)
         if isinstance(attr, str):
             return attr
@@ -131,13 +133,13 @@ class StreamReporter(Reporter):
         self.outs.flush()
 
     def startTest(self, tname, test):
-        self.outs.write("         %s: test started\n" % (tname,))
+        self.outs.write("        %s: test started\n" % (tname,))
         self.outs.flush()
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
 
-        msg = result + " " * (7 - len(result)) + ": " + tname
+        msg = result + " " * (8 - len(result)) + tname
         if desc:
             msg += ": " + desc
 
@@ -170,7 +172,7 @@ class StreamReporter(Reporter):
 
     def startSetUpSuite(self, tname, suite):
         desc = self.getDescription(suite, "setUp")
-        self.outs.write("         %s: %s\n" % (tname, desc))
+        self.outs.write("        %s: %s\n" % (tname, desc))
         self.outs.flush()
 
     def stopSetUpSuite(self, tname, suite):
@@ -178,7 +180,7 @@ class StreamReporter(Reporter):
 
     def startTearDownSuite(self, tname, suite):
         desc = self.getDescription(suite, "tearDown")
-        self.outs.write("         %s: %s\n" % (tname, desc))
+        self.outs.write("        %s: %s\n" % (tname, desc))
         self.outs.flush()
 
     def stopTearDownSuite(self, tname, suite):
@@ -188,12 +190,12 @@ class StreamReporter(Reporter):
         tb = error.getTracebackObject()
         msg = error.getErrorMessage()
 
-        self.outs.write("ERROR:   %s: failed setting up: %s\n" % (tname, msg))
+        self.outs.write("ERROR:  %s: failed setting up: %s\n" % (tname, msg))
         self.outs.flush()
 
     def suiteTearDownFailure(self, tname, error):
         msg = error.getErrorMessage()
-        self.outs.write("ERROR:   %s: failed tearing down\n" % (tname, msg))
+        self.outs.write("ERROR:  %s: failed tearing down\n" % (tname, msg))
         self.outs.flush()
 
 
@@ -230,13 +232,13 @@ class TapReporter(Reporter):
         self.outs.flush()
 
     def startTest(self, tname, test):
-        self.outs.write("#        %s: test started\n" % (tname,))
+        self.outs.write("#          %s: test started\n" % (tname,))
         self.outs.flush()
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
         if result == "OK":
-            msg = "ok %d - %s: %s\n" % (
+            msg = "ok %d     - %s: %s\n" % (
                 self.numberMapping[tname], tname, desc)
         elif result  == "UX-OK":
             msg = "ok %d - %s (UNEXPECTED)\n" % (
@@ -360,6 +362,10 @@ class CursesReporter(Reporter):
 
     def updateResultLine(self, tname, str):
         self.lines[tname] = str
+
+        if not tname in self.resultLines:
+            self.addResultLine(tname, str)
+            return
 
         out = ""
         idx = self.resultLines.index(tname)
