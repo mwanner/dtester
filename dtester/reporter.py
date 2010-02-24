@@ -62,17 +62,18 @@ class Reporter:
         while True:
             if isinstance(error, failure.Failure):
                 tb = error.getTraceback()
+                tbo = error.getTracebackObject()
                 error = error.value
             elif isinstance(error, defer.FirstError):
                 error = error.subFailure
                 assert isinstance(error, failure.Failure)
             else:
-                return (error, tb)
+                return (error, tb, tbo)
 
     def dumpError(self, tname, err):
         assert isinstance(err, failure.Failure)
 
-        (inner_err, tb) = self.getInnerError(err)
+        (inner_err, tb, ignored) = self.getInnerError(err)
 
         if isinstance(inner_err, TestFailure):
             msg = "=" * 20 + "\n"
@@ -146,6 +147,7 @@ class StreamReporter(Reporter):
         if result in ("OK", "SKIPPED", "TIMEOUT", "UX-OK"):
             msg += "\n"
         else:
+            (inner_error, ignored, tb) = self.getInnerError(error)
             tb = traceback.extract_tb(error.getTracebackObject())
             try:
                 row = tb.pop()
@@ -160,11 +162,11 @@ class StreamReporter(Reporter):
                 filename = row[0][len(commonpath) + 1:]
                 lineno = row[1]
 
-                errmsg = error.getErrorMessage()
+                errmsg = inner_error.message
                 msg += " - %s in %s:%d\n" % (
                     errmsg, filename, lineno)
             except IndexError:
-                errmsg = error.getErrorMessage()
+                errmsg = inner_error.message()
                 msg += " - %s" % (tname, desc, errmsg)
 
         self.outs.write(msg)
@@ -244,7 +246,7 @@ class TapReporter(Reporter):
             msg = "ok %d - %s (UNEXPECTED)\n" % (
                 self.numberMapping[tname], tname)
         else:
-            errmsg = error.getErrorMessage()
+            errmsg = inner_error.message
             tb = traceback.extract_tb(error.getTracebackObject())
             try:
                 row = tb.pop()
@@ -486,14 +488,10 @@ class CursesReporter(Reporter):
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
 
-        isTimeoutError = False
-        if not result:
-            inner_error = self.getInnerError(error)
-            isTimeoutError = isinstance(inner_error, TimeoutError)
-
         if result in ("OK", "SKIPPED", "TIMEOUT", "UX-OK"):
             msg = self.renderResultLine(result, tname, desc)
         else:
+            (inner_error, ignored, tb) = self.getInnerError(error)
             tb = traceback.extract_tb(error.getTracebackObject())
             try:
                 row = tb.pop()
@@ -508,11 +506,11 @@ class CursesReporter(Reporter):
                 filename = row[0][len(commonpath) + 1:]
                 lineno = row[1]
 
-                errmsg = error.getErrorMessage()
+                errmsg = inner_error.message
             except IndexError:
                 filename = None
                 lineno = None
-                errmsg = error.getErrorMessage()
+                errmsg = inner_error.message
 
             msg = self.renderResultLine(result, tname, desc,
                                         errmsg, filename, lineno)
