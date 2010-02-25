@@ -40,12 +40,7 @@ class TestFailure(Exception):
 class DefinitionError(TestFailure):
     """ Used for all errors in the test definition.
     """
-    def __init__(self, msg, details=""):
-        Exception.__init__(self, msg)
-        self.details = details
-
-    def getDetails(self):
-        return self.details
+    pass
 
 class TestSkipped(Exception):
     pass

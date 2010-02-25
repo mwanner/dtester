@@ -143,9 +143,8 @@ class Timeout:
 
     def checkTimeout(self):
         if not self.timer_deferred.called:
-            # print "Timeout, forwarding failure!"
             self.timer_deferred.errback(failure.Failure(
-                TimeoutError("TIMEOUT: %s!" % self.msg)))
+                TimeoutError(self.msg)))
 
     def completed(self, result):
         if not self.timer_deferred.called:
