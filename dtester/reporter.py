@@ -13,7 +13,8 @@ import os, sys, traceback
 from twisted.internet import defer
 from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
-from dtester.exceptions import TestFailure, TimeoutError, TestSkipped
+from dtester.exceptions import TestFailure, TimeoutError, TestSkipped, \
+    DefinitionError
 
 
 class Reporter:
@@ -71,14 +72,44 @@ class Reporter:
             else:
                 return (error, tb, tbo)
 
-    def dumpError(self, tname, err):
+    def getShortError(self, error):
+        (inner_error, tb, tbo) = self.getInnerError(error)
+        tbo = traceback.extract_tb(error.getTracebackObject())
+
+        try:
+            row = tbo.pop()
+
+            # the last row of the traceback might well one of the standard
+            # check methods in the BaseTest class. We don't want to display
+            # that.
+            while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
+                row = tbo.pop()
+
+            commonpath = os.path.commonprefix((row[0], os.getcwd()))
+            filename = row[0][len(commonpath) + 1:]
+            lineno = row[1]
+
+        except IndexError:
+            filename = None
+            lineno = None
+
+        errmsg = inner_error.message
+
+        # skip filename and line number for DefinitionErrors
+        if isinstance(inner_error, DefinitionError):
+            filename = None
+            lineno = None
+
+        return (errmsg, filename, lineno)
+
+    def dumpError(self, tname, type, err):
         assert isinstance(err, failure.Failure)
 
         (inner_err, tb, ignored) = self.getInnerError(err)
 
         if isinstance(inner_err, TestFailure):
             msg = "=" * 20 + "\n"
-            msg += "%s failed: %s\n" % (tname, inner_err.message)
+            msg += "%s %s failed: %s\n" % (type, tname, inner_err.message)
             if inner_err.getDetails():
                 msg += "-" * 20 + "\n"
                 msg += inner_err.getDetails() + "\n"
@@ -86,14 +117,15 @@ class Reporter:
             self.errs.write(msg)
         elif isinstance(inner_err, TimeoutError):
             msg = "=" * 20 + "\n"
-            msg += "Test %s timed out.\n" % (tname,)
-            msg += "\n\n"
+            msg += "%s %s: %s\n" % (type, tname, inner_err.message)
+            msg += "-" * 20 + "\n"
+            msg += tb + "\n"
             self.errs.write(msg)
         elif isinstance(inner_err, TestSkipped):
             return
         else:
             msg = "=" * 20 + "\n"
-            msg += "Error in test %s:\n" % (tname,)
+            msg += "Error in %s %s:\n" % (type, tname,)
             msg += "-" * 20 + "\n"
             msg += repr(inner_err) + "\n"
             msg += "-" * 20 + "\n"
@@ -103,8 +135,8 @@ class Reporter:
     def dumpErrors(self, errors):
         if len(errors) > 0:
             self.errs.write("\n")
-        for (name, error) in errors:
-            self.dumpError(name, error)
+        for (name, type, error) in errors:
+            self.dumpError(name, type, error)
 
     def harnessFailure(self):
         self.errs.write("Failed running the test harness:\n")
@@ -142,33 +174,19 @@ class StreamReporter(Reporter):
         desc = self.getDescription(test)
 
         msg = result + " " * (8 - len(result)) + tname
-        if desc:
-            msg += ": " + desc
 
-        if result in ("OK", "SKIPPED", "TIMEOUT", "UX-OK"):
-            msg += "\n"
+        if result in ("OK", "SKIPPED", "UX-OK"):
+            if desc:
+                msg += ": %s\n" % desc
+            else:
+                msg += "\n"
         else:
-            (inner_error, ignored, tb) = self.getInnerError(error)
-            tb = traceback.extract_tb(error.getTracebackObject())
-            try:
-                row = tb.pop()
+            (errmsg, filename, lineno) = self.getShortError(error)
 
-                # the last row of the traceback might well one of the standard
-                # check methods in the BaseTest class. We don't want to display
-                # that.
-                while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
-                    row = tb.pop()
-
-                commonpath = os.path.commonprefix((row[0], os.getcwd()))
-                filename = row[0][len(commonpath) + 1:]
-                lineno = row[1]
-
-                errmsg = inner_error.message
-                msg += " - %s in %s:%d\n" % (
-                    errmsg, filename, lineno)
-            except IndexError:
-                errmsg = inner_error.message()
-                msg += " - %s" % (tname, desc, errmsg)
+            if filename and lineno:
+                msg += " - %s in %s:%d\n" % (errmsg, filename, lineno)
+            else:
+                msg += " - %s\n" % (errmsg,)
 
         self.outs.write(msg)
         self.outs.flush()
@@ -190,15 +208,12 @@ class StreamReporter(Reporter):
         pass
 
     def suiteSetUpFailure(self, tname, error):
-        tb = error.getTracebackObject()
-        msg = error.getErrorMessage()
-
-        self.outs.write("ERROR:  %s: failed setting up: %s\n" % (tname, msg))
+        self.outs.write("        suite %s failed setting up\n" % (tname,))
         self.outs.flush()
 
     def suiteTearDownFailure(self, tname, error):
         msg = error.getErrorMessage()
-        self.outs.write("ERROR:  %s: failed tearing down\n" % (tname, msg))
+        self.outs.write("        suite %s: failed tearing down\n" % (tname,))
         self.outs.flush()
 
 
@@ -247,28 +262,15 @@ class TapReporter(Reporter):
             msg = "ok %d - %s (UNEXPECTED)\n" % (
                 self.numberMapping[tname], tname)
         else:
-            (inner_error, ignored, tb) = self.getInnerError(error)
-            errmsg = inner_error.message
-            tb = traceback.extract_tb(error.getTracebackObject())
-            try:
-                row = tb.pop()
+            (errmsg, filename, lineno) = self.getShortError(error)
 
-                # the last row of the traceback might well one of the standard
-                # check methods in the BaseTest class. We don't want to display
-                # that.
-                while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
-                    row = tb.pop()
-
-                commonpath = os.path.commonprefix((row[0], os.getcwd()))
-                filename = row[0][len(commonpath) + 1:]
-                lineno = row[1]
-
+            if filename and lineno:
                 msg = "not ok %d - %s (%s) # %s in %s:%d\n" % (
                     self.numberMapping[tname], tname, result,
                     errmsg, filename, lineno)
-            except IndexError:
-                msg = "not ok %d - %s: %s # %s\n" % (
-                    self.numberMapping[tname], tname, desc, errmsg)
+            else:
+                msg = "not ok %d - %s (%s) # %s\n" % (
+                    self.numberMapping[tname], tname, result, errmsg)
 
         self.outs.write(msg)
         self.outs.flush()
@@ -293,12 +295,12 @@ class TapReporter(Reporter):
         tb = error.getTracebackObject()
         msg = error.getErrorMessage()
 
-        self.outs.write("# ERROR: %s: failed setting up: %s\n" % (tname, msg))
+        self.outs.write("# suite %s: failed setting up\n" % (tname,))
         self.outs.flush()
 
     def suiteTearDownFailure(self, tname, error):
         msg = error.getErrorMessage()
-        self.outs.write("# ERROR: %s: failed tearing down\n" % (tname, msg))
+        self.outs.write("# suite %s: failed tearing down\n" % (tname,))
         self.outs.flush()
 
 
@@ -330,16 +332,21 @@ class CursesReporter(Reporter):
         if setf:
             self.COLOR_BLUE = curses.tparm(setf, 1)
             self.COLOR_GREEN = curses.tparm(setf, 2)
+            # self.COLOR_CYAN = curses.tparm(setf, 3)
             self.COLOR_RED = curses.tparm(setf, 4)
-            self.COLOR_YELLOW = curses.tparm(setf, 3)
+            # self.COLOR_MANGENTA = curses.tparm(setf, 5)
+            self.COLOR_YELLOW = curses.tparm(setf, 6)
         elif setaf:
-            self.COLOR_BLUE = curses.tparm(setaf, 4)
-            self.COLOR_GREEN = curses.tparm(setaf, 2)
             self.COLOR_RED = curses.tparm(setaf, 1)
-            self.COLOR_YELLOW = curses.tparm(setaf, 5)  ## ??
+            self.COLOR_GREEN = curses.tparm(setaf, 2)
+            self.COLOR_YELLOW = curses.tparm(setaf, 3)
+            self.COLOR_BLUE = curses.tparm(setaf, 4)
+            # self.COLOR_MANGENTA = curses.tparm(setaf, 5)
+            # self.COLOR_CYAN = curses.tparm(setaf, 6)
         else:
             self.COLOR_BLUE = ""
             self.COLOR_GREEN = ""
+            self.COLOR_CYAN = ""
             self.COLOR_RED = ""
             self.COLOR_YELLOW = ""
 
@@ -490,30 +497,10 @@ class CursesReporter(Reporter):
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
 
-        if result in ("OK", "SKIPPED", "TIMEOUT", "UX-OK"):
+        if result in ("OK", "SKIPPED", "UX-OK"):
             msg = self.renderResultLine(result, tname, desc)
         else:
-            (inner_error, ignored, tb) = self.getInnerError(error)
-            tb = traceback.extract_tb(error.getTracebackObject())
-            try:
-                row = tb.pop()
-
-                # the last row of the traceback might well one of the standard
-                # check methods in the BaseTest class. We don't want to display
-                # that.
-                while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
-                    row = tb.pop()
-
-                commonpath = os.path.commonprefix((row[0], os.getcwd()))
-                filename = row[0][len(commonpath) + 1:]
-                lineno = row[1]
-
-                errmsg = inner_error.message
-            except IndexError:
-                filename = None
-                lineno = None
-                errmsg = inner_error.message
-
+            (errmsg, filename, lineno) = self.getShortError(error)
             msg = self.renderResultLine(result, tname, desc,
                                         errmsg, filename, lineno)
 
@@ -539,16 +526,10 @@ class CursesReporter(Reporter):
         self.dropStatusLine("teardown__" + tname)
 
     def suiteSetUpFailure(self, tname, error):
-        tb = error.getTracebackObject()
-        msg = error.getErrorMessage()
-
-        #self.outs.write("# ERROR: %s: failed setting up: %s\n" % (tname, msg))
-        self.outs.flush()
+        pass
 
     def suiteTearDownFailure(self, tname, error):
-        msg = error.getErrorMessage()
-        #self.outs.write("# ERROR: %s: failed tearing down\n" % (tname, msg))
-        self.outs.flush()
+        pass
 
 def reporterFactory():
     if sys.stdout.isatty():

@@ -120,6 +120,7 @@ class Runner:
         count_succ = 0
         errors = []
         for name, state in self.test_states.iteritems():
+            isSuite = issubclass(state.tClass, TestSuite)
             if state.tStatus != 'done':
                 # FIXME: if we'd track dependencies correctly, this should
                 #        not happen.
@@ -129,11 +130,16 @@ class Runner:
                 inner_error = self.reporter.getInnerError(state.failure)
                 # we don't print tracebacks for expected failures no skipped tests
                 if not isinstance(inner_error, TestSkipped) and not self.test_states[name].xfail:
-                    errors.append((name, state.failure))
+                    type = "test"
+                    if isSuite:
+                        type = "suite"
+                    errors.append((name, type, state.failure))
             else:
-                count_succ += 1
+                if not isSuite:
+                    count_succ += 1
 
-            count_total += 1
+            if not isSuite:
+                count_total += 1
 
         t_diff = time.time() - self.t_start
         self.reporter.end(t_diff, count_total, count_succ, errors)
@@ -189,7 +195,11 @@ class Runner:
         if self.test_states[tname].xfail:
             self.reporter.stopTest(tname, test, "XFAIL", error)
         else:
-            self.reporter.stopTest(tname, test, "FAILED", error)
+            (inner_error, tb, tbo) = self.reporter.getInnerError(error)
+            result = "FAILED"
+            if isinstance(inner_error, TimeoutError):
+                result = "TIMEOUT"
+            self.reporter.stopTest(tname, test, result, error)
         return (False, error)
 
     def cbSleep(self, result, test):
@@ -240,7 +250,7 @@ class Runner:
         if isinstance(t, TestSuite):
             self.reporter.startSetUpSuite(tname, t)
 
-            to = Timeout("suite timeout", self.suiteTimeout,
+            to = Timeout("suite setUp timed out", self.suiteTimeout,
                          defer.maybeDeferred(t._setUp))
             d = to.getDeferred()
             d.addCallbacks(self.cbSuiteSetUp, self.ebSuiteSetUpFailed,
@@ -253,7 +263,7 @@ class Runner:
             self.test_states[tname].tStatus = 'running'
             d = defer.maybeDeferred(t._run)
 
-            to = Timeout("test timeout", self.testTimeout, d)
+            to = Timeout("test run timed out", self.testTimeout, d)
             d = to.getDeferred()
 
             d.addCallbacks(self.cbTestSucceeded, self.cbTestFailed,
@@ -277,7 +287,7 @@ class Runner:
         if tname != "__system__":
             self.reporter.startTearDownSuite(tname, suite)
 
-        to = Timeout("suite timeout", self.suiteTimeout,
+        to = Timeout("suite tearDown timed out", self.suiteTimeout,
                     defer.maybeDeferred(suite._tearDown))
         d = to.getDeferred()
         d.addCallback(self.cbSuiteTornDown, tname, suite)
@@ -409,7 +419,6 @@ class Runner:
 
                 d = defer.maybeDeferred(self.startupTest, tname,
                         t.tClass, t.tNeeds, t.tArgs, t.tDependencies)
-                d.addErrback(self.trapUnableToRun, tname, t)
                 d.addErrback(self.testStartupFailed, tname, t)
                 dl.append(d)
 
@@ -421,17 +430,19 @@ class Runner:
 
         return None
 
-    def trapUnableToRun(self, error, tname, t):
-        r = error.trap(UnableToRun)
-        t.tStatus = 'done'
-        t.failure = error
-        self.reporter.stopTest(tname, t, "SKIPPED", error)
-        return None
-
     def testStartupFailed(self, error, tname, t):
         t.tStatus = 'done'
         t.failure = error
-        self.reporter.stopTest(tname, t, "ERROR", error)
+
+        (inner_error, tb, tbo) = self.reporter.getInnerError(error)
+
+        result = "ERROR"
+        if isinstance(inner_error, UnableToRun):
+            result = "SKIPPED"
+        elif isinstance(inner_error, TimeoutError):
+            result = "TIMEOUT"
+
+        self.reporter.stopTest(tname, t, result, error)
         return None
 
     def checkDependencies(self):
