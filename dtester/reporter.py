@@ -59,6 +59,7 @@ class Reporter:
 
     def getInnerError(self, error):
         tb = None
+        tbo = None
         while True:
             if isinstance(error, failure.Failure):
                 tb = error.getTraceback()
@@ -246,6 +247,7 @@ class TapReporter(Reporter):
             msg = "ok %d - %s (UNEXPECTED)\n" % (
                 self.numberMapping[tname], tname)
         else:
+            (inner_error, ignored, tb) = self.getInnerError(error)
             errmsg = inner_error.message
             tb = traceback.extract_tb(error.getTracebackObject())
             try:
