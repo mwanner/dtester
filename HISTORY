@@ -1,0 +1,12 @@
+dtester-0.1  2010-03-20 
+
+	Support for tests that are expected to fail as well as skipping tests
+	entirely.
+
+	Add some documentation, better reporting and lots of cleanup.
+
+dtester-0.0  2010-01-14
+
+	Published a work in progress version of dtester to the Postgres
+	hackers mailing list.
+

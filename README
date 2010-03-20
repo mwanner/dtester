@@ -3,15 +3,111 @@
 
 a component based test suite for distributed systems
 
-Version 0.1dev
+version 0.1dev
 
 
-Pending Issues
+Copyright (c) 2006-2010 Markus Wanner
 
- * Documentation still lacking.
- * Support for expected failures and skipping tests.
- * Self-testing test suite.
- * Complete implementation of nested test suites.
+Distributed under the Boost Software License, Version 1.0. (See
+accompanying file LICENSE).
+
+
+Abstract
+========
+
+Dtester is an event driven test harness specifically targetting distributed
+systems and designed to ease reuse and rearrangment of test components. It
+doesn't only run tests, but controls the system under test, its setup and
+the (possibly concurrent) execution of tests.
+
+Dtester originates from the Postgres-R project and is mostly used for testing
+Postgres.
+
+
+Installation
+============
+
+dtester comes with the usual setup.py script, using setuptools. It knows the
+following commands, which are used for building, testing and system-wide
+installation.
+
+  python setup.py build
+  python setup.py dtest
+  sudo python setup.py install
+
+The dtest command is a dtester specific addition, which runs a trivial
+self-testing test suite.
+
+
+Lifecycle of a Test
+===================
+
+All tests and test suites, including skipped ones normally proceed through
+the following stages: waiting (for dependencies), starting, running,
+stopping, and terminated (whether successful or not). During these stages,
+various events may occur. The following diagram tries to outline the possible
+combinations.
+
+   states . succ. events  . failure events
+          .               .
+          .               .
+   waiting                .
+          \               .
+           ready to run   .
+          /               .
+   starting  --------------->---------------->   set up failed
+          \               .                            |
+            set up        .                            |
+          /               .                            |
+   running  ---------------->   error running test     |
+          \               .              |             |
+            done          .              |             |
+           /              .              |             |
+           +---------------<-------------+------<------'
+          /               .
+   stopping ----------------->  tear down failed
+          \               .            |
+          torn down       .            |
+          /               .            |
+   terminated <------------------------'
+          .               .
+          .               .
+
+
+Running Conditions
+==================
+
+A test may depend on a suite via the 'uses' or 'depends' definition. Both
+of these dependencies require the suite to have successfully started *before*
+running the test and keep the suite running until *after* the test completed.
+In case the suite terminates unexpectedly due to an error, the test is
+aborted immediately.
+
+The 'use' definition satisfies requirements of a test, i.e. the test gets the
+suite passed as an argument and may use its functions. Whereas the 'depends'
+definition only affects the ordering of running suites and tests. There's no
+programmatic relation between the suite a a test that depends on the suite.
+This distinction is required to keep tests and their requirements as general
+as possible, while still providing the ability to control the order of
+execution of suites and tests.
+
+Note that this distinction between 'uses' and 'depends' might vanish in the
+future.
+
+Dtester currently also supports 'onlyAfter' dependencies. These tell the
+runner to start the dependent test only after successful execution of the
+other test(s) listed in the 'onlyAfter' dependency.
+
+
+Tests vs. Suites
+================
+
+The TestSuite class is derived from the BaseTest, so it's clearly also a 
+Test. However, the runner doesn't execute the run method for suites. Instead,
+suites have setUp and tearDown methods. Note however, that suites may set up
+a service which may fail (and thus throw an exception)  in between setUp and
+tearDown. Dtester tries to handle these cases gracefully and aborts
+concurrently running tests with an error.
 
 
 Copyright (c) 2006-2010 Markus Wanner
