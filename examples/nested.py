@@ -61,7 +61,6 @@ tdef = {
 }
 
 config = {}
-reporter = dtester.reporter.StreamReporter()
-runner = dtester.runner.Runner(reporter)
+runner = dtester.runner.Runner()
 runner.run(tdef, config)
 

@@ -67,7 +67,7 @@ class UnsuccTest(dtester.test.SyncTest):
     needs = (('s1', 'ITestTestSuite'),)
 
     def run(self):
-        self.assertEqual(1, 2)
+        self.assertEqual(1, 2, "failure description")
 
 
 class UnsuccTest2(dtester.test.BaseTest):
@@ -77,7 +77,7 @@ class UnsuccTest2(dtester.test.BaseTest):
     needs = (('s1', 'ITestTestSuite'),)
 
     def run(self):
-        return self.assertEqual(1, 2)
+        return self.assertEqual(1, 2, "failure description")
 
 
 tdef = {
@@ -96,7 +96,6 @@ tdef = {
 }
 
 config = {}
-reporter = dtester.reporter.StreamReporter()
-runner = dtester.runner.Runner(reporter)
+runner = dtester.runner.Runner()
 runner.run(tdef, config)
 
