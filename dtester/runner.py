@@ -31,6 +31,7 @@ class TestState:
         self.failure = None
         self.suite = None
         self.xfail = False
+        self.skip = False
 
         self.tStatus = 'unknown'
         self.tDependents = []
@@ -216,6 +217,10 @@ class Runner:
                 "Test class %s has %d arguments, but %d were specified for %s." % (
                 tclass.__class__.__name__, len(tclass.args), len(args), tname))
 
+        if self.test_states[tname].skip:
+            raise TestSkipped("intentionally skipped",
+                              "Test %s got skipped intentionally." % tname)
+
         assert(len(needs) == len(tclass.needs))
         assert(len(args) == len(tclass.args))
 
@@ -331,6 +336,9 @@ class Runner:
             if d.has_key('xfail'):
                 self.test_states[name].xfail = d['xfail']
 
+            if d.has_key('skip'):
+                self.test_states[name].skip = d['skip']
+
         # initialize the initial system suite
         state = TestState(system.__class__, '__system__')
         state.running = True
@@ -418,7 +426,8 @@ class Runner:
                 t.tStatus = 'starting'
 
                 d = defer.maybeDeferred(self.startupTest, tname,
-                        t.tClass, t.tNeeds, t.tArgs, t.tDependencies)
+                                        t.tClass, t.tNeeds, t.tArgs,
+                                        t.tDependencies)
                 d.addErrback(self.testStartupFailed, tname, t)
                 dl.append(d)
 
@@ -437,7 +446,7 @@ class Runner:
         (inner_error, tb, tbo) = self.reporter.getInnerError(error)
 
         result = "ERROR"
-        if isinstance(inner_error, UnableToRun):
+        if isinstance(inner_error, TestSkipped):
             result = "SKIPPED"
         elif isinstance(inner_error, TimeoutError):
             result = "TIMEOUT"

@@ -1,4 +1,8 @@
-dtester-0.1  2010-03-20 
+dtester-0.2  2010-??-??
+
+	Improve support for skipped tests.
+
+dtester-0.1  2010-03-20
 
 	Support for tests that are expected to fail as well as skipping tests
 	entirely.
