@@ -10,5 +10,12 @@ setup(
     license = "Boost Software License v1.0 (BSD like)",
     packages = find_packages(),
     install_requires = ["Twisted >= 2.4.0", "setuptools"],
-)
 
+    test_suite = "dtester.tests.test_all",
+
+    entry_points = {
+        "distutils.commands": [
+            "dtest = dtester.setuptools_dtester:dtest"
+            ],
+        }
+)

@@ -1,0 +1,19 @@
+
+====================
+suite endless_teardown: suite tearDown timed out
+--------------------
+Traceback (most recent call last):
+Failure: dtester.exceptions.TimeoutError: suite tearDown timed out
+
+====================
+test test_deferred_timeout: test run timed out
+--------------------
+Traceback (most recent call last):
+Failure: dtester.exceptions.TimeoutError: test run timed out
+
+====================
+suite endless_setup: suite setUp timed out
+--------------------
+Traceback (most recent call last):
+Failure: dtester.exceptions.TimeoutError: suite setUp timed out
+

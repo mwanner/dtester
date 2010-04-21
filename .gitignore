@@ -1,2 +1,5 @@
 build/
+dtester.egg-info/
 *.pyc
+*.err
+*.out

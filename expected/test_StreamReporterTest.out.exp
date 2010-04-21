@@ -1,0 +1,8 @@
+        test_success: test started
+OK      test_success: a test that succeeds
+        test_failure: test started
+FAILED  test_failure - intentional failure in dtester/dtests.py:45
+        test_suite: test started
+OK      test_suite: a test that succeeds
+SKIPPED test_single_dep
+Run 4 tests: 2 succeeded 2 failed.
