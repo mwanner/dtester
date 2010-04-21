@@ -21,7 +21,7 @@ class Reporter:
     """ An abstract base class for all reporters.
     """
 
-    def __init__(self, outs=sys.stdout, errs=sys.stderr):
+    def __init__(self, outs=sys.stdout, errs=sys.stderr, showTimingInfo=True):
         """ @param outs: output stream for progress and result information
             @type  outs: file handle
             @param errs: error stream for reporting errors
@@ -29,6 +29,7 @@ class Reporter:
         """
         self.outs = outs
         self.errs = errs
+        self.showTimingInfo = showTimingInfo
 
     def getDescription(self, suite, attname=None):
         """ @return: the test's description or that of one of its methods,
@@ -142,6 +143,43 @@ class Reporter:
         self.errs.write("Failed running the test harness:\n")
         error.printBriefTraceback(self.errs)
 
+    def dumpResults(self, t_diff, count_total, count_succ, count_skipped, count_xfail, prefix=""):
+        if count_succ == count_total:
+            msg = "%s%d tests successfully processed" % (
+                prefix, count_succ)
+
+            if self.showTimingInfo:
+                msg += " in %0.1f seconds" % t_diff
+
+            msg += ".\n"
+        else:
+            count_failed = count_total - count_succ - count_skipped - count_xfail
+            run_total = count_total - count_skipped
+
+            msg = "%sRun %s tests" % (prefix, run_total)
+            if self.showTimingInfo:
+                msg += " in %0.1f seconds" % t_diff
+
+            if count_skipped > 0:
+                msg += ", skipped %d" % (count_skipped,)
+
+            msg += ":"
+
+            if count_succ > 0:
+                msg += " %d succeeded" % (count_succ,)
+            if count_failed > 0:
+                msg += " %d failed" % count_failed
+            if count_skipped > 0:
+                msg += " %d skipped" % count_skipped
+            if count_xfail > 0:
+                if count_xfail > 1:
+                    msg += " %d expected failures" % count_xfail
+                else:
+                    msg += " 1 expected failure"
+            msg += ".\n"
+
+        self.outs.write(msg)
+        self.outs.flush()
 
 class StreamReporter(Reporter):
     """ A simple, human readable stream reporter without any bells and
@@ -151,20 +189,9 @@ class StreamReporter(Reporter):
     def begin(self, tdef):
         pass
 
-    def end(self, t_diff, count_total, count_succ, errors):
+    def end(self, t_diff, count_total, count_succ, count_skipped, count_xfail, errors):
         self.dumpErrors(errors)
-
-        if count_succ == count_total:
-            msg = "%d tests processed successfully in %0.1f seconds.\n" % (
-                count_succ, t_diff)
-        else:
-            ratio = float(count_succ) / float(count_total) * 100
-            msg = "%d of %d tests succeeded (%0.1f%%), " % (
-                    count_succ, count_total, ratio) + \
-                  "processed in %0.1f seconds.\n" % (t_diff,)
-
-        self.outs.write(msg)
-        self.outs.flush()
+        self.dumpResults(t_diff, count_total, count_succ, count_skipped, count_xfail)
 
     def startTest(self, tname, test):
         self.outs.write("        %s: test started\n" % (tname,))
@@ -236,18 +263,8 @@ class TapReporter(Reporter):
         self.outs.write("TAP version 13\n")
         self.outs.write("1..%d\n" % nr)
 
-    def end(self, t_diff, count_total, count_succ, errors):
-        if count_succ == count_total:
-            msg = "# %d tests processed successfully in %0.1f seconds.\n" % (
-                count_succ, t_diff)
-        else:
-            ratio = float(count_succ) / float(count_total) * 100
-            msg = "# %d of %d tests succeeded (%0.1f%%), " % (
-                    count_succ, count_total, ratio) + \
-                  "processed in %0.1f seconds.\n" % (t_diff,)
-
-        self.outs.write(msg)
-        self.outs.flush()
+    def end(self, t_diff, count_total, count_succ, count_skipped, count_xfail, errors):
+        self.dumpResults(t_diff, count_total, count_succ, count_skipped, count_xfail, prefix="# ")
 
     def startTest(self, tname, test):
         self.outs.write("#          %s: test started\n" % (tname,))
@@ -310,8 +327,8 @@ class CursesReporter(Reporter):
         tearDown information only as vanishing status lines.
     """
 
-    def __init__(self, outs=sys.stdout, errs=sys.stderr):
-        Reporter.__init__(self, outs, errs)
+    def __init__(self, outs=sys.stdout, errs=sys.stderr, showTimingInfo=True):
+        Reporter.__init__(self, outs, errs, showTimingInfo)
         self.count_result_lines = 0
         self.count_status_lines = 0
 
@@ -425,20 +442,9 @@ class CursesReporter(Reporter):
     def begin(self, tdefs):
         pass
 
-    def end(self, t_diff, count_total, count_succ, errors):
+    def end(self, t_diff, count_total, count_succ, count_skipped, count_xfail, errors):
         self.dumpErrors(errors)
-
-        if count_succ == count_total:
-            msg = "%d tests processed successfully in %0.1f seconds.\n" % (
-                count_succ, t_diff)
-        else:
-            ratio = float(count_succ) / float(count_total) * 100
-            msg = "%d of %d tests succeeded (%0.1f%%), " % (
-                    count_succ, count_total, ratio) + \
-                  "processed in %0.1f seconds.\n" % (t_diff,)
-
-        self.outs.write(msg)
-        self.outs.flush()
+        self.dumpResults(t_diff, count_total, count_succ, count_skipped, count_xfail)
 
     def startTest(self, tname, test):
         desc = self.getDescription(test)

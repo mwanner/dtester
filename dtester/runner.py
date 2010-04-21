@@ -119,6 +119,8 @@ class Runner:
     def processCmdListFinished(self, result):
         count_total = 0
         count_succ = 0
+        count_skipped = 0
+        count_xfail = 0
         errors = []
         for name, state in self.test_states.iteritems():
             isSuite = issubclass(state.tClass, TestSuite)
@@ -130,7 +132,13 @@ class Runner:
             if state.failure:
                 inner_error = self.reporter.getInnerError(state.failure)
                 # we don't print tracebacks for expected failures no skipped tests
-                if not isinstance(inner_error, TestSkipped) and not self.test_states[name].xfail:
+                if isinstance(inner_error, TestSkipped):
+                    if not isSuite:
+                        count_skipped += 1
+                elif self.test_states[name].xfail:
+                    if not isSuite:
+                        count_xfail += 1
+                else:
                     type = "test"
                     if isSuite:
                         type = "suite"
@@ -143,7 +151,7 @@ class Runner:
                 count_total += 1
 
         t_diff = time.time() - self.t_start
-        self.reporter.end(t_diff, count_total, count_succ, errors)
+        self.reporter.end(t_diff, count_total, count_succ, count_skipped, count_xfail, errors)
 
         if self.controlReactor:
             reactor.stop()
