@@ -27,7 +27,7 @@ class EventSource:
                 hook[1](event, *hook[2], **hook[3])
 
     def addHook(self, matcher, callback, *args, **kargs):
-        assert(callable(callback), "callback function must be callable")
+        assert callable(callback), "callback function must be callable"
         self.maxHookId += 1
         self.hooks[self.maxHookId] = (matcher, callback, args, kargs)
         return self.maxHookId

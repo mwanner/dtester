@@ -94,7 +94,7 @@ class Reporter:
             filename = None
             lineno = None
 
-        errmsg = inner_error.message
+        errmsg = repr(inner_error)
 
         # skip filename and line number for DefinitionErrors
         if isinstance(inner_error, DefinitionError):
@@ -110,7 +110,7 @@ class Reporter:
 
         if isinstance(inner_err, TestFailure):
             msg = "=" * 20 + "\n"
-            msg += "%s %s failed: %s\n" % (type, tname, inner_err.message)
+            msg += "%s %s failed: %s\n" % (type, tname, repr(inner_err))
             if inner_err.getDetails():
                 msg += "-" * 20 + "\n"
                 msg += inner_err.getDetails() + "\n"
@@ -118,7 +118,7 @@ class Reporter:
             self.errs.write(msg)
         elif isinstance(inner_err, TimeoutError):
             msg = "=" * 20 + "\n"
-            msg += "%s %s: %s\n" % (type, tname, inner_err.message)
+            msg += "%s %s: %s\n" % (type, tname, repr(inner_err))
             msg += "-" * 20 + "\n"
             msg += tb + "\n"
             self.errs.write(msg)

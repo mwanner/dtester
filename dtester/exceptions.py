@@ -24,7 +24,8 @@ class TestDependantAbort(Exception):
 class TimeoutError(Exception):
     """ The exception throws by the L{Timeout} helper class.
     """
-    pass
+    def __repr__(self):
+        return Exception.__str__(self)
 
 class TestFailure(Exception):
     """ An ordinary test failure, used by the L{BaseTest}'s custom check
@@ -36,6 +37,9 @@ class TestFailure(Exception):
 
     def getDetails(self):
         return self.details
+
+    def __repr__(self):
+        return Exception.__str__(self)
 
 class DefinitionError(TestFailure):
     """ Used for all errors in the test definition.

@@ -67,6 +67,11 @@ class SimpleProcess(EventSource):
                  env=[], lineBasedOutput=False):
         EventSource.__init__(self)
 
+        # FIXME: better argumnt checking required here:
+        for x in args:
+            if not isinstance(x, str):
+                print "argument for %s is not a string: '%s'\n\n\n\n" % (proc_name, x)
+
         if lineBasedOutput:
             self.protocol = SimpleProcessLineBasedProtocol(self)
         else:
