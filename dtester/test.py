@@ -1,6 +1,6 @@
 # test.py
 #
-# Copyright (c) 2006-2010 Markus Wanner
+# Copyright (c) 2006-2015 Markus Wanner
 #
 # Distributed under the Boost Software License, Version 1.0. (See
 # accompanying file LICENSE).
@@ -12,8 +12,9 @@ as the TestSuite class for dtester.
 
 from twisted.internet import defer, reactor, threads
 from twisted.python import failure
-from dtester.exceptions import TestAborted, TestDependantAbort, TimeoutError, \
-                               TestFailure, FailureCollection
+
+from dtester.exceptions import FailureCollection, TestAborted, \
+     TestDependantAbort, TestFailure, TestFailure, TimeoutError
 
 
 class BaseTest(object):
@@ -115,6 +116,11 @@ class BaseTest(object):
 
             raise TestFailure(errmsg, "%s != %s" % (repr(a), repr(b)))
 
+    def expectExitCode(self, exitCode, expectedCode, desc):
+        self.assertEqual(exitCode, expectedCode,
+            "process %s terminated with exit code %d, expected %d" % (
+                desc, exitCode, expectedCode))
+
     def assertNotEqual(self, a, b, errmsg):
         if a == b:
             raise TestFailure(errmsg, "%s == %s" % (repr(a), repr(b)))
@@ -124,6 +130,9 @@ class BaseTest(object):
 
     def addNestedDependency(self, tname):
         self.runner.addNestedDependency(self, tname)
+
+    def log(self, msg):
+        self.runner.log(msg)
 
 
 class Timeout:
@@ -265,6 +274,8 @@ class TestSuite(BaseTest):
     def _abort(self, result):
         BaseTest._abort(self, result)
         for c in self.children:
+            if c == self:
+                continue
             c._abort(TestDependantAbort())
 
 class AssertionCollector:

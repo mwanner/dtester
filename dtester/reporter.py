@@ -1,6 +1,6 @@
 # reporter.py
 #
-# Copyright (c) 2006-2010 Markus Wanner
+# Copyright (c) 2006-2015 Markus Wanner
 #
 # Distributed under the Boost Software License, Version 1.0. (See
 # accompanying file LICENSE).
@@ -46,7 +46,8 @@ class Reporter:
         else:
             attname = "description"
         if not hasattr(suite, attname):
-            # raise Exception("Test %s misses attribute %s." % (suite, attname))
+            #raise Exception("Test %s misses attribute %s."
+            #    % (suite, attname))
             return None
         attr = getattr(suite, attname)
         if isinstance(attr, str):
@@ -110,7 +111,8 @@ class Reporter:
 
         if isinstance(inner_err, FailureCollection):
             msg = "=" * 20 + "\n"
-            msg += "%s failed: %s (%d errors)\n" % (tname, repr(inner_err), len(inner_err.getErrors()))
+            msg += "%s failed: %s (%d errors)\n" % (tname, repr(inner_err),
+                                                    len(inner_err.getErrors()))
             msg += ("-" * 20 + "\n")
             details = []
             for err in inner_err.getErrors():
@@ -159,7 +161,8 @@ class Reporter:
         self.errs.write("Failed running the test harness:\n")
         error.printBriefTraceback(self.errs)
 
-    def dumpResults(self, t_diff, count_total, count_succ, count_skipped, count_xfail, prefix=""):
+    def dumpResults(self, t_diff, count_total, count_succ, count_skipped,
+                    count_xfail, prefix=""):
         if count_succ == count_total:
             msg = "%s%d tests successfully processed" % (
                 prefix, count_succ)
@@ -169,7 +172,8 @@ class Reporter:
 
             msg += ".\n"
         else:
-            count_failed = count_total - count_succ - count_skipped - count_xfail
+            count_failed = (count_total - count_succ - count_skipped -
+                            count_xfail)
             run_total = count_total - count_skipped
 
             msg = "%sRun %s tests" % (prefix, run_total)
@@ -205,9 +209,11 @@ class StreamReporter(Reporter):
     def begin(self, tdef):
         pass
 
-    def end(self, t_diff, count_total, count_succ, count_skipped, count_xfail, errors):
+    def end(self, t_diff, count_total, count_succ, count_skipped,
+            count_xfail, errors):
         self.dumpErrors(errors)
-        self.dumpResults(t_diff, count_total, count_succ, count_skipped, count_xfail)
+        self.dumpResults(t_diff, count_total, count_succ, count_skipped,
+                         count_xfail)
 
     def startTest(self, tname, test):
         self.outs.write("        %s: test started\n" % (tname,))
@@ -216,8 +222,7 @@ class StreamReporter(Reporter):
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
 
-        msg = result + " " * (8 - len(result)) + tname
-
+        msg = str(tname)
         if result in ("OK", "SKIPPED", "UX-OK"):
             if desc:
                 msg += ": %s\n" % desc
@@ -231,6 +236,13 @@ class StreamReporter(Reporter):
             else:
                 msg += " - %s\n" % (errmsg,)
 
+        self.writeLine(result, msg)
+
+    def log(self, msg):
+        self.writeLine("LOG", msg + "\n")
+
+    def writeLine(self, mtype, msg):
+        msg = mtype + " " * (8 - len(mtype)) + msg
         self.outs.write(msg)
         self.outs.flush()
 
@@ -279,8 +291,10 @@ class TapReporter(Reporter):
         self.outs.write("TAP version 13\n")
         self.outs.write("1..%d\n" % nr)
 
-    def end(self, t_diff, count_total, count_succ, count_skipped, count_xfail, errors):
-        self.dumpResults(t_diff, count_total, count_succ, count_skipped, count_xfail, prefix="# ")
+    def end(self, t_diff, count_total, count_succ, count_skipped,
+            count_xfail, errors):
+        self.dumpResults(t_diff, count_total, count_succ, count_skipped,
+                         count_xfail, prefix="# ")
 
     def startTest(self, tname, test):
         self.outs.write("#          %s: test started\n" % (tname,))
@@ -336,6 +350,10 @@ class TapReporter(Reporter):
         self.outs.write("# suite %s: failed tearing down\n" % (tname,))
         self.outs.flush()
 
+    def log(self, msg):
+        self.outs.write("# log: " + msg)
+        self.outs.flush()
+
 
 class CursesReporter(Reporter):
     """ A more advanced reporter for terminal users based on curses
@@ -347,6 +365,7 @@ class CursesReporter(Reporter):
         Reporter.__init__(self, outs, errs, showTimingInfo)
         self.count_result_lines = 0
         self.count_status_lines = 0
+        self.count_log_lines = 0
 
         # initialize curses
         import curses
@@ -363,21 +382,21 @@ class CursesReporter(Reporter):
         setf = curses.tigetstr('setf')
         setaf = curses.tigetstr('setaf')
         if setf:
-            self.COLOR_BLUE = curses.tparm(setf, 1)
+            # self.COLOR_BLUE = curses.tparm(setf, 1)
             self.COLOR_GREEN = curses.tparm(setf, 2)
-            # self.COLOR_CYAN = curses.tparm(setf, 3)
+            self.COLOR_CYAN = curses.tparm(setf, 3)
             self.COLOR_RED = curses.tparm(setf, 4)
-            # self.COLOR_MANGENTA = curses.tparm(setf, 5)
+            self.COLOR_MANGENTA = curses.tparm(setf, 5)
             self.COLOR_YELLOW = curses.tparm(setf, 6)
         elif setaf:
             self.COLOR_RED = curses.tparm(setaf, 1)
             self.COLOR_GREEN = curses.tparm(setaf, 2)
             self.COLOR_YELLOW = curses.tparm(setaf, 3)
-            self.COLOR_BLUE = curses.tparm(setaf, 4)
-            # self.COLOR_MANGENTA = curses.tparm(setaf, 5)
-            # self.COLOR_CYAN = curses.tparm(setaf, 6)
+            # self.COLOR_BLUE = curses.tparm(setaf, 4)
+            self.COLOR_MANGENTA = curses.tparm(setaf, 5)
+            self.COLOR_CYAN = curses.tparm(setaf, 6)
         else:
-            self.COLOR_BLUE = ""
+            # self.COLOR_BLUE = ""
             self.COLOR_GREEN = ""
             self.COLOR_CYAN = ""
             self.COLOR_RED = ""
@@ -458,14 +477,32 @@ class CursesReporter(Reporter):
     def begin(self, tdefs):
         pass
 
-    def end(self, t_diff, count_total, count_succ, count_skipped, count_xfail, errors):
+    def end(self, t_diff, count_total, count_succ, count_skipped,
+            count_xfail, errors):
         self.dumpErrors(errors)
-        self.dumpResults(t_diff, count_total, count_succ, count_skipped, count_xfail)
+        self.dumpResults(t_diff, count_total, count_succ, count_skipped,
+                         count_xfail)
 
     def startTest(self, tname, test):
         desc = self.getDescription(test)
         msg = self.renderResultLine("running", tname, desc)
         self.addResultLine(tname, msg)
+
+    def log(self, msg):
+        columns = self.COLUMNS
+        rest = columns
+
+        # first 7 chars for the result
+        color = self.COLOR_MANGENTA
+
+        prefix = " " * (8 - len("LOG")) + color + "LOG" + self.NORMAL + " "
+        rest = columns - 8 - 1
+
+        # trim to 'rest' chars  FIXME: maybe wrap?
+        msg = msg[:rest-3]
+
+        self.addResultLine("log" + str(self.count_log_lines), prefix + msg)
+        self.count_log_lines += 1
 
     def renderResultLine(self, result, tname, tdesc, errmsg=None,
                          filename=None, lineno=None):
@@ -479,7 +516,7 @@ class CursesReporter(Reporter):
         elif result in ("FAILED", "TIMEOUT"):
             color = self.COLOR_RED
         elif result in ("SKIPPED", "XFAIL"):
-            color = self.COLOR_BLUE
+            color = self.COLOR_CYAN
         elif result == "UX-OK":
             color = self.COLOR_YELLOW
 

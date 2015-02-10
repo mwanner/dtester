@@ -1,6 +1,6 @@
 # runner.py
 #
-# Copyright (c) 2006-2010 Markus Wanner
+# Copyright (c) 2006-2015 Markus Wanner
 #
 # Distributed under the Boost Software License, Version 1.0. (See
 # accompanying file LICENSE).
@@ -10,13 +10,14 @@ scheduling of tests and test suites, running them in parallel based on an
 asynchronous event loop using twisted.
 """
 
-import os, copy, time
+import copy, os, time
 from twisted.python import failure
 from twisted.internet import defer, reactor
 
-from dtester.test import Timeout, BaseTest, TestSuite
+from dtester.test import BaseTest, TestSuite, Timeout
 from dtester.processes import SimpleProcess
-from dtester.exceptions import TimeoutError, UnableToRun, DefinitionError, TestSkipped
+from dtester.exceptions import DefinitionError, TestSkipped, TimeoutError, \
+    TestSkipped, UnableToRun
 from dtester.reporter import reporterFactory
 
 class TestState:
@@ -100,7 +101,8 @@ class InitialSuite(TestSuite):
 
     def addEnvLibraryPath(self, path):
         if self.env.has_key('LD_LIBRARY_PATH'):
-            self.env['LD_LIBRARY_PATH'] = "%s:%s" % (path, self.env['LD_LIBRARY_PATH'])
+            self.env['LD_LIBRARY_PATH'] = "%s:%s" % (
+                path, self.env['LD_LIBRARY_PATH'])
         else:
             self.env['LD_LIBRARY_PATH'] = path
 
@@ -109,7 +111,8 @@ class Runner:
     """ The core test runner, which schedules the start and stop of all tests
         and test suites.
     """
-    def __init__(self, reporter=None, testTimeout=15, suiteTimeout=60, controlReactor=True):
+    def __init__(self, reporter=None, testTimeout=15, suiteTimeout=60,
+                 controlReactor=True):
         self.reporter = reporter or reporterFactory()
         self.test_states = {}
         self.testTimeout = testTimeout
@@ -131,7 +134,8 @@ class Runner:
 
             if state.failure:
                 inner_error = self.reporter.getInnerError(state.failure)
-                # we don't print tracebacks for expected failures no skipped tests
+                # We don't print tracebacks for expected failures no
+                # skipped tests
                 if isinstance(inner_error, TestSkipped):
                     if not isSuite:
                         count_skipped += 1
@@ -151,7 +155,8 @@ class Runner:
                 count_total += 1
 
         t_diff = time.time() - self.t_start
-        self.reporter.end(t_diff, count_total, count_succ, count_skipped, count_xfail, errors)
+        self.reporter.end(t_diff, count_total, count_succ, count_skipped,
+                          count_xfail, errors)
 
         if self.controlReactor:
             reactor.stop()
@@ -243,9 +248,11 @@ class Runner:
                 if suite.running:
                     kwargs[tclass.needs[i][0]] = suite
                 else:
-                    raise Exception("error starting %s: test_states says %s is running, but it's not!" % (tname, needs[i]))
+                    raise Exception("error starting %s: test_states says %s is running, but it's not!" % (
+                        tname, needs[i]))
             else:
-                raise UnableToRun("error starting %s: unable to run, due to dependency on %s" % (tname, needs[i]))
+                raise UnableToRun("error starting %s: unable to run, due to dependency on %s" % (
+                    tname, needs[i]))
 
         for i in range(len(args)):
             kwargs[tclass.args[i][0]] = args[i]
@@ -367,7 +374,9 @@ class Runner:
             if d.has_key('uses'):
                 for u in d['uses']:
                     if not u in self.test_states:
-                        raise Exception("Unable to find 'uses' dependency %s of test %s" % (u, name))
+                        raise Exception(
+                            "Unable to find 'uses' dependency %s of test %s" % (
+                                u, name))
                     needs.append(u)
                     if not name in self.test_states[u].tDependents:
                         self.test_states[u].tDependents.append(name)
@@ -376,7 +385,9 @@ class Runner:
             if d.has_key('depends'):
                 for u in d['depends']:
                     if not u in self.test_states:
-                        raise Exception("Unable to find 'depends' dependency %s of test %s" % (u, name))
+                        raise Exception(
+                            "Unable to find 'depends' dependency %s of test %s" % (
+                                u, name))
                     deps.append(u)
                     if not name in self.test_states[u].tDependents:
                         self.test_states[u].tDependents.append(name)
@@ -385,7 +396,9 @@ class Runner:
             if d.has_key('onlyAfter'):
                 for u in d['onlyAfter']:
                     if not u in self.test_states:
-                        raise Exception("Unable to find 'onlyAfter' dependency %s of test %s" % (u, name))
+                        raise Exception(
+                            "Unable to find 'onlyAfter' dependency %s of test %s" % (
+                                u, name))
                     onlyAfter.append(u)
                     # FIXME: the target, on which this dependency is on, is
                     #        not notified in any way here, unlike above ones.
@@ -461,6 +474,9 @@ class Runner:
 
         self.reporter.stopTest(tname, t, result, error)
         return None
+
+    def log(self, msg):
+        self.reporter.log(msg)
 
     def checkDependencies(self):
         runnable = []
