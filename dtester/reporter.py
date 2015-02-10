@@ -42,14 +42,14 @@ class Reporter:
         if not suite:
             return None
         if attname:
-            attname += "Description"
+            fullAttname = attname + "Description"
         else:
-            attname = "description"
-        if not hasattr(suite, attname):
+            fullAttname = "description"
+        if not hasattr(suite, fullAttname):
             #raise Exception("Test %s misses attribute %s."
             #    % (suite, attname))
-            return None
-        attr = getattr(suite, attname)
+            return "(no description for %s)" % attname
+        attr = getattr(suite, fullAttname)
         if isinstance(attr, str):
             return attr
         else:
