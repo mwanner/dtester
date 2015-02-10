@@ -6,7 +6,7 @@ a component based test suite for distributed systems
 version 0.2dev
 
 
-Copyright (c) 2006-2010 Markus Wanner
+Copyright (c) 2006-2015 Markus Wanner
 
 Distributed under the Boost Software License, Version 1.0. (See
 accompanying file LICENSE).
@@ -110,7 +110,21 @@ tearDown. Dtester tries to handle these cases gracefully and aborts
 concurrently running tests with an error.
 
 
-Copyright (c) 2006-2010 Markus Wanner
+Building the apidocs
+====================
+
+The apidocs are created with pydoctor, the same tool that twisted
+uses. Since at least Debian 8.0 (jessie), packages for pydoctor should
+be available on that distribution. Otherwise, please fetch epydoc and
+pydoctor.
+
+To generate the actual apidocs run:
+
+ # pydoctor --add-package dtester --project-name dtester --make-html
+
+
+
+Copyright (c) 2006-2015 Markus Wanner
 
 Distributed under the Boost Software License, Version 1.0. (See
 accompanying file LICENSE).
