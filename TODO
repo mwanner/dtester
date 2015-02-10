@@ -4,7 +4,5 @@ Expected failures may happen at unexpected places. Instead of the current
 'xfail': True attribute in the test definition, we should better mark the
 exact operation that's expected to fail as such.
 
-Idea: nested tests and test suites, or test (suite) factories
-
 Correct dependency tracking, maybe using some DAG based approach.
 

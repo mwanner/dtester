@@ -61,13 +61,13 @@ combinations.
           /               .                            |
    running  ---------------->   error running test     |
           \               .              |             |
-            done          .              |             |
+            done          .              v             |
            /              .              |             |
            +---------------<-------------+------<------'
           /               .
    stopping ----------------->  tear down failed
           \               .            |
-          torn down       .            |
+          torn down       .            v
           /               .            |
    terminated <------------------------'
           .               .
