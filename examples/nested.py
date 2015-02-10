@@ -5,7 +5,7 @@ nested.py
 
 A simple example for usage of a nested test suite.
 
-Copyright (c) 2006-2010 Markus Wanner
+Copyright (c) 2006-2015 Markus Wanner
 
 Distributed under the Boost Software License, Version 1.0. (See
 accompanying file LICENSE).
@@ -20,10 +20,9 @@ class NestedSuite(dtester.test.TestSuite):
 
     def setUp(self):
         tdef = {
-            'nestedTest':       {'class': SampleTestSuite}
+            'nested_suite':       {'class': SampleTestSuite}
         }
-        self.addNestedTests(tdef)
-        self.addNestedDependency('nestedTest')
+        self.addNestedSuites(tdef, ['nested_suite'])
 
 
 class SampleTestSuite(dtester.test.TestSuite):
@@ -31,10 +30,10 @@ class SampleTestSuite(dtester.test.TestSuite):
     """
 
     def setUpDescription(self):
-        return "starting test test suite"
+        return "starting test suite"
 
     def tearDownDescription(self):
-        return "stopping test test suite"
+        return "stopping test suite"
 
     def setUp(self):
         pass
@@ -56,8 +55,8 @@ class SampleTest(dtester.test.SyncTest):
 
 
 tdef = {
-    'suite_nest':   {'class': NestedSuite },
-    'test_nested':  {'class': SampleTest, 'uses': ('suite_nest',) },
+    'parent':   {'class': NestedSuite },
+    'test_nested':  {'class': SampleTest, 'uses': ('parent',) },
 }
 
 config = {}

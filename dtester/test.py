@@ -134,11 +134,10 @@ class BaseTest(object):
         if a == b:
             raise TestFailure(errmsg, "%s == %s" % (repr(a), repr(b)))
 
-    def addNestedTests(self, tdef):
-        self.runner.addNestedTests(self, tdef)
-
-    def addNestedDependency(self, tname):
-        self.runner.addNestedDependency(self, tname)
+    def addNestedSuites(self, tdef, leaves):
+        if isinstance(leaves, str):
+            leaves = (leaves,)
+        self.runner.addNestedSuites(self, tdef, leaves)
 
     def log(self, msg):
         self.runner.log(msg)

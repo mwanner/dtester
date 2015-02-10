@@ -320,27 +320,31 @@ class Runner:
                 return name
         raise Exception("test %s not found" % test)
 
-    def addNestedTests(self, test, tdef):
+    def addNestedSuites(self, test, tdef, leaves):
         tname = self.getNameOfTest(test)
+        self.parseTestDef(tdef, tname)
 
-        # FIXME: complete support for nested tests
-        #for defname, d in tdef.iteritems():
-        #    print "should add %s.%s" % (tname, defname)
+        # turn the leave test names into fully quoted ones
+        leaves = [tname + "." + x for x in leaves]
 
-    def addNestedDependency(self, test, tname):
-        own_tname = self.getNameOfTest(test)
-        depname = own_tname + "." + tname
-        # FIXME: complete support for nested tests
-        #print "depends on: %s" % depname
+        # make all dependents of the calling test also depend on the leaves
+        # of this nested tdef
+        for depname in self.test_states[tname].tDependents:
+            for lname in leaves:
+                if lname not in self.test_states[depname].tDependencies:
+                    self.test_states[depname].tDependencies.append(lname)
+                if depname not in self.test_states[lname].tDependents:
+                    self.test_states[lname].tDependents.append(depname)
 
-    def processCmdList(self, tdef, system):
-        self.t_start = time.time()
-        self.reporter.begin(tdef)
-
+    def parseTestDef(self, tdef, parentName=None):
         # essentially copy the test definitions into our own
         # test_states structure.
         for name, d in tdef.iteritems():
             assert d.has_key('class')
+
+            if parentName:
+                name = parentName + "." + name
+
             self.test_states[name] = TestState(d['class'], name)
 
             if d.has_key('args'):
@@ -353,6 +357,65 @@ class Runner:
 
             if d.has_key('skip'):
                 self.test_states[name].skip = d['skip']
+
+
+        for name, d in tdef.iteritems():
+            if parentName:
+                name = parentName + "." + name
+
+            needs = []
+            if d.has_key('uses'):
+                for u in d['uses']:
+                    # nested tests may add their dependencies right away
+                    if isinstance(u, TestSuite):
+                        u = self.getNameOfTest(u)
+                    elif parentName:
+                        u = parentName + "." + u
+
+                    if not u in self.test_states:
+                        raise Exception(
+                            "Unable to find 'uses' dependency %s of test %s" % (
+                                u, name))
+                    needs.append(u)
+                    if not name in self.test_states[u].tDependents:
+                        self.test_states[u].tDependents.append(name)
+            self.test_states[name].tNeeds = needs
+            deps = []
+            if d.has_key('depends'):
+                for u in d['depends']:
+                    # nested tests may add their dependencies right away
+                    if isinstance(u, TestSuite):
+                        u = self.getNameOfTest(u)
+                    elif parentName:
+                        u = parentName + "." + u
+                    if not u in self.test_states:
+                        raise Exception(
+                            "Unable to find 'depends' dependency %s of test %s" % (
+                                u, name))
+                    deps.append(u)
+                    if not name in self.test_states[u].tDependents:
+                        self.test_states[u].tDependents.append(name)
+            self.test_states[name].tDependencies = deps
+            onlyAfter = []
+            if d.has_key('onlyAfter'):
+                for u in d['onlyAfter']:
+                    if parentName:
+                        u = parentName + "." + u
+                    if not u in self.test_states:
+                        raise Exception(
+                            "Unable to find 'onlyAfter' dependency %s of test %s" % (
+                                u, name))
+                    onlyAfter.append(u)
+                    # FIXME: the target, on which this dependency is on, is
+                    #        not notified in any way here, unlike above ones.
+            self.test_states[name].tOnlyAfter = onlyAfter
+
+
+    def processCmdList(self, tdef, system):
+        self.t_start = time.time()
+        self.reporter.begin(tdef)
+
+        self.parseTestDef(tdef)
 
         # initialize the initial system suite
         state = TestState(system.__class__, '__system__')
@@ -368,41 +431,9 @@ class Runner:
         # mark the system suite as running
         system.running = True
 
+
         # copy dependency information
-        for name, d in tdef.iteritems():
-            needs = []
-            if d.has_key('uses'):
-                for u in d['uses']:
-                    if not u in self.test_states:
-                        raise Exception(
-                            "Unable to find 'uses' dependency %s of test %s" % (
-                                u, name))
-                    needs.append(u)
-                    if not name in self.test_states[u].tDependents:
-                        self.test_states[u].tDependents.append(name)
-            self.test_states[name].tNeeds = needs
-            deps = []
-            if d.has_key('depends'):
-                for u in d['depends']:
-                    if not u in self.test_states:
-                        raise Exception(
-                            "Unable to find 'depends' dependency %s of test %s" % (
-                                u, name))
-                    deps.append(u)
-                    if not name in self.test_states[u].tDependents:
-                        self.test_states[u].tDependents.append(name)
-            self.test_states[name].tDependencies = deps
-            onlyAfter = []
-            if d.has_key('onlyAfter'):
-                for u in d['onlyAfter']:
-                    if not u in self.test_states:
-                        raise Exception(
-                            "Unable to find 'onlyAfter' dependency %s of test %s" % (
-                                u, name))
-                    onlyAfter.append(u)
-                    # FIXME: the target, on which this dependency is on, is
-                    #        not notified in any way here, unlike above ones.
-            self.test_states[name].tOnlyAfter = onlyAfter
+        #for name, d in tdef.iteritems():
 
         d = defer.maybeDeferred(self.iterate, None)
         d.addCallback(self.processCmdListFinished)
@@ -411,15 +442,16 @@ class Runner:
     def iterate(self, result):
         (runnableTests, terminatableTests, runningTests) = \
             self.checkDependencies()
-        #print "-----------------------------------------------------"
-        #print "runnable Tests: %s" % str(runnableTests)
-        #print "terminatable Tests: %s" % str(terminatableTests)
-        #print "running Tests: %s" % str(runningTests)
-        #print "    test states:"
-        #for tname, t in self.test_states.iteritems():
-        #    if t.tStatus not in ('done', 'waiting'):
-        #        spaces = " " * (30 - len(tname))
-        #        print "        %s:%s%s" % (tname, spaces, t.tStatus)
+        if 0:
+            print "-----------------------------------------------------"
+            print "runnable Tests: %s" % str(runnableTests)
+            print "terminatable Tests: %s" % str(terminatableTests)
+            print "running Tests: %s" % str(runningTests)
+            print "    test states:"
+            for tname, t in self.test_states.iteritems():
+                if t.tStatus not in ('done', 'waiting'):
+                    spaces = " " * (30 - len(tname))
+                    print "        %s:%s%s" % (tname, spaces, t.tStatus)
 
         if len(runnableTests) + len(terminatableTests) == 0:
             return None
