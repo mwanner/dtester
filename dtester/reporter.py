@@ -46,9 +46,11 @@ class Reporter:
         else:
             fullAttname = "description"
         if not hasattr(suite, fullAttname):
-            #raise Exception("Test %s misses attribute %s."
-            #    % (suite, attname))
-            return "(no description for %s)" % attname
+            if attname:
+                return "(no description for %s)" % attname
+            else:
+                # Test itself has no further description
+                return None
         attr = getattr(suite, fullAttname)
         if isinstance(attr, str):
             return attr
@@ -56,8 +58,7 @@ class Reporter:
             try:
                 desc = attr()
             except Exception, e:
-                desc = "EXCEPTION in description of %s: %s" % (
-                    suite, e)
+                desc = "EXCEPTION in description of %s: %s" % (suite, e)
             return desc
 
     def getInnerError(self, error):

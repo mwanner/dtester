@@ -1,5 +1,5 @@
         test_collector: test started
-FAILED  test_collector - collector in dtester/test.py:302
+FAILED  test_collector - collector in dtester/test.py:311
         test_failure: test started
 FAILED  test_failure - intentional failure in dtester/dtests.py:48
         test_success: test started

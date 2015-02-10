@@ -121,6 +121,15 @@ class BaseTest(object):
             "process %s terminated with exit code %d, expected %d" % (
                 desc, exitCode, expectedCode))
 
+    def runSequentialCommandsIgnoringResults(self, cmds):
+        d = defer.Deferred()
+        for cmd in cmds:
+            def ignoreResult(result, func, *args):
+                return func(*args)
+            d.addCallback(ignoreResult, cmd[0], *cmd[1:])
+        d.callback(None)
+        return d
+
     def assertNotEqual(self, a, b, errmsg):
         if a == b:
             raise TestFailure(errmsg, "%s == %s" % (repr(a), repr(b)))
