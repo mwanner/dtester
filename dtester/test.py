@@ -13,7 +13,7 @@ as the TestSuite class for dtester.
 from twisted.internet import defer, reactor, threads
 from twisted.python import failure
 from dtester.exceptions import TestAborted, TestDependantAbort, TimeoutError, \
-                               TestFailure
+                               TestFailure, FailureCollection
 
 
 class BaseTest(object):
@@ -266,3 +266,27 @@ class TestSuite(BaseTest):
         BaseTest._abort(self, result)
         for c in self.children:
             c._abort(TestDependantAbort())
+
+class AssertionCollector:
+
+    def __init__(self, short_desc="multiple errors"):
+        self.short_desc = short_desc
+        self.tests = []
+
+    def append(self, test_func, *args, **kwargs):
+        self.tests.append((test_func, args, kwargs))
+
+    def check(self):
+        errors = []
+        for (test_func, args, kwargs) in self.tests:
+            try:
+                test_func(*args, **kwargs)
+            except Exception, e:
+                errors.append(e)
+
+        if len(errors) > 0:
+            if len(errors) == 1:
+                raise errors[0]
+            else:
+                raise FailureCollection(self.short_desc, errors)
+

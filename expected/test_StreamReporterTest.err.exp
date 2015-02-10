@@ -1,5 +1,11 @@
 
 ====================
+test_collector failed: collector (2 errors)
+--------------------
+True != False
+--------------------
+'ape' != 'cow'
+====================
 test test_failure failed: intentional failure
 --------------------
 The only purpose of this test is

@@ -1,7 +1,9 @@
 TAP version 13
-1..2
+1..3
 #          test_success: test started
 ok 1     - test_success: a test that succeeds
+#          test_collector: test started
+not ok 2 - test_collector (FAILED) # collector in dtester/test.py:291
 #          test_failure: test started
-not ok 2 - test_failure (FAILED) # intentional failure in dtester/dtests.py:45
-# Run 2 tests: 1 succeeded 1 failed.
+not ok 3 - test_failure (FAILED) # intentional failure in dtester/dtests.py:48
+# Run 3 tests: 1 succeeded 2 failed.

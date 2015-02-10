@@ -41,6 +41,18 @@ class TestFailure(Exception):
     def __repr__(self):
         return Exception.__str__(self)
 
+        
+class FailureCollection(TestFailure):
+    """ A failure container, that collects error messages of multiple
+        sub failures from the AssertionCollector.
+    """
+    def __init__(self, msg, errors):
+        TestFailure.__init__(self, msg)
+        self.errors = errors
+
+    def getErrors(self):
+        return self.errors
+
 class DefinitionError(TestFailure):
     """ Used for all errors in the test definition.
     """

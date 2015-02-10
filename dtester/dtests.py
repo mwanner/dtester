@@ -1,6 +1,6 @@
 # dtests.py
 #
-# Copyright (c) 2006-2010 Markus Wanner
+# Copyright (c) 2006-2015 Markus Wanner
 #
 # Distributed under the Boost Software License, Version 1.0. (See
 # accompanying file LICENSE).
@@ -9,8 +9,11 @@
 self-testing code for dtester
 """
 
+import os
 import time
+
 from twisted.internet import defer
+
 import exceptions, reporter, runner, test
 
 #
@@ -56,6 +59,18 @@ class SingleDepTest(test.BaseTest):
         self.assertNotEqual(None, self.dep1,
                         "dep1 is null")
 
+class ThrowsMultipleErrors(test.BaseTest):
+
+    description = "a test with multiple failures"
+
+    def run(self):
+        coll = test.AssertionCollector("collector")
+        coll.append(self.assertEqual, True, False,
+                    "long description of the first error")
+        coll.append(self.assertEqual, "ape", "cow",
+                    "long description of the second error")
+        coll.check()
+
 
 class AbstractSelfTest(test.BaseTest):
     """ A framework component for self-testing, i.e. running an instance of
@@ -79,7 +94,6 @@ class AbstractSelfTest(test.BaseTest):
         d = run.run(self.tdef, {})
         d.addBoth(self.cleanup, outs, errs)
         d.addCallback(self.compareResult, fn)
-        # d.addErrback(self.reportError, fn)
         return d
 
     def cleanup(self, result, outs, errs):
@@ -105,12 +119,14 @@ class AbstractSelfTest(test.BaseTest):
         self.assertEqual(s1, s2, errmsg, leftdesc=fn1, rightdesc=fn2)
 
     def compareResult(self, result, fn):
-        self.assertEqualFiles("expected/" + fn + ".out.exp", fn + ".out")
-        self.assertEqualFiles("expected/" + fn + ".err.exp", fn + ".err")
-
-    def reportError(self, result, fn):
-        raise exceptions.TestFailure("error in test harness",
-            "Test harness raised exception:\n%s" % result.value)
+        coll = test.AssertionCollector("result comparison errors")
+        coll.append(self.assertEqualFiles,
+                    os.path.join("expected", fn + ".out.exp"),
+                    fn + ".out")
+        coll.append(self.assertEqualFiles,
+                    os.path.join("expected", fn + ".err.exp"),
+                    fn + ".err")
+        coll.check()
 
 
 class StreamReporterTest(AbstractSelfTest):
@@ -122,7 +138,8 @@ class StreamReporterTest(AbstractSelfTest):
         'test_failure': {"class": FailingTest},
         'test_suite': {"class": SucceedingTest},
         'test_single_dep': {"class": SingleDepTest,
-                            "uses": ["test_suite"]}
+                            "uses": ["test_suite"]},
+        'test_collector': {"class": ThrowsMultipleErrors}
         }
 
 class TapReporterTest(AbstractSelfTest):
@@ -131,7 +148,8 @@ class TapReporterTest(AbstractSelfTest):
 
     tdef = {
         'test_success': {"class": SucceedingTest},
-        'test_failure': {"class": FailingTest}
+        'test_failure': {"class": FailingTest},
+        'test_collector': {"class": ThrowsMultipleErrors}
         }
 
     def createReporter(self, outs, errs):

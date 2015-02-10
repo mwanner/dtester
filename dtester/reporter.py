@@ -14,7 +14,7 @@ from twisted.internet import defer
 from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
 from dtester.exceptions import TestFailure, TimeoutError, TestSkipped, \
-    DefinitionError
+    DefinitionError, FailureCollection
 
 
 class Reporter:
@@ -108,7 +108,23 @@ class Reporter:
 
         (inner_err, tb, ignored) = self.getInnerError(err)
 
-        if isinstance(inner_err, TestFailure):
+        if isinstance(inner_err, FailureCollection):
+            msg = "=" * 20 + "\n"
+            msg += "%s failed: %s (%d errors)\n" % (tname, repr(inner_err), len(inner_err.getErrors()))
+            msg += ("-" * 20 + "\n")
+            details = []
+            for err in inner_err.getErrors():
+                if isinstance(err, TestFailure):
+                    detail = err.getDetails()
+                    details.append(detail)
+                elif isinstance(err, TimeoutError):
+                    details.append("timeout error")
+                else:
+                    details.append(repr(err))
+            msg += ("\n" + "-" * 20 + "\n").join(details)
+            msg += "\n"
+            self.errs.write(msg)
+        elif isinstance(inner_err, TestFailure):
             msg = "=" * 20 + "\n"
             msg += "%s %s failed: %s\n" % (type, tname, repr(inner_err))
             if inner_err.getDetails():
