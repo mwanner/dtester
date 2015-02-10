@@ -5,7 +5,7 @@ simple.py
 
 Various simple examples for using dtester.
 
-Copyright (c) 2006-2010 Markus Wanner
+Copyright (c) 2006-2015 Markus Wanner
 
 Distributed under the Boost Software License, Version 1.0. (See
 accompanying file LICENSE).
@@ -77,6 +77,7 @@ class UnsuccTest2(dtester.test.BaseTest):
     needs = (('s1', 'ITestTestSuite'),)
 
     def run(self):
+        self.log("test log message")
         return self.assertEqual(1, 2, "failure description")
 
 

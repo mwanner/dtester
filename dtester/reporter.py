@@ -240,7 +240,11 @@ class StreamReporter(Reporter):
         self.writeLine(result, msg)
 
     def log(self, msg):
-        self.writeLine("LOG", msg + "\n")
+        for line in msg.split("\n"):
+            # lame attempt at escaping other special characters
+            line = repr(line)
+            line = line[1:-1]
+            self.writeLine("LOG", line + "\n")
 
     def writeLine(self, mtype, msg):
         msg = mtype + " " * (8 - len(mtype)) + msg
@@ -352,7 +356,11 @@ class TapReporter(Reporter):
         self.outs.flush()
 
     def log(self, msg):
-        self.outs.write("# log: " + msg)
+        for line in msg.split("\n"):
+            # lame attempt at escaping other special characters
+            line = repr(line)
+            line = line[1:-1]
+            self.outs.write("# log: " + line + "\n")
         self.outs.flush()
 
 
@@ -499,11 +507,18 @@ class CursesReporter(Reporter):
         prefix = " " * (8 - len("LOG")) + color + "LOG" + self.NORMAL + " "
         rest = columns - 8 - 1
 
-        # trim to 'rest' chars  FIXME: maybe wrap?
-        msg = msg[:rest-3]
+        for line in msg.split("\n"):
+            RIGHT_SPACING = 3
+            # lame attempt at escaping other special characters
+            line = repr(line)
+            line = line[1:-1]
+            while len(line) > 0:
+                current, line = line[:rest - RIGHT_SPACING], \
+                  line[rest - RIGHT_SPACING:]
 
-        self.addResultLine("log" + str(self.count_log_lines), prefix + msg)
-        self.count_log_lines += 1
+                self.addResultLine("log" + str(self.count_log_lines),
+                                   prefix + current)
+                self.count_log_lines += 1
 
     def renderResultLine(self, result, tname, tdesc, errmsg=None,
                          filename=None, lineno=None):
