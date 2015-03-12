@@ -45,7 +45,7 @@ class Event:
         return True
 
     def __repr__(self):
-        return "Event of type %s" % (self.__class__,)
+        return "Event of type %s from %s" % (self.__class__, self.source)
 
 class EventMatcher(object):
     """ A matcher that compares L{events<Event>} against a certain criterion.
@@ -114,3 +114,44 @@ class ProcessEndedEvent(Event):
     def __repr__(self):
         return "[%s] terminated with error code %s" % (
             self.source, self.exitCode)
+
+
+
+
+class RemoteStreamDataEvent(Event):
+    """ An abstract class for events emitted by
+        L{RemoteProcessExecutionChannel} for every kind of output to any
+        channel.
+    """
+
+    name = 'RemoteDataEvent'
+
+    def __init__(self, source, data):
+        Event.__init__(self, source)
+        self.data = data
+
+    def matches(self, needle=None):
+        if needle:
+            return (self.data.find(needle) >= 0)
+        else:
+            return True
+
+    def __repr__(self):
+        return "[%s] %s: %s" % (self.source, self.name, self.data)
+
+
+class RemoteProcessOutputEvent(RemoteStreamDataEvent):
+    """ The event thrown by L{SimpleProcess} for every output to its standard
+        output channel.
+    """
+
+    name = 'out'
+
+
+class RemoteProcessErrorEvent(RemoteStreamDataEvent):
+    """ The event thrown by L{SimpleProcess} for every output to its standard
+        error channel.
+    """
+
+    name = 'err'
+
