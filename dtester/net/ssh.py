@@ -508,18 +508,27 @@ class SimpleSSHTransport(transport.SSHClientTransport):
             return self.sftpClient.removeFile(path)
         """
 
+    def setSftpClient(self, client):
+        self.sftpClient = client
+        return client
 
-    def getRealPath(self, path):
-        if not self.sftpChannel:
+    def getSftpChannel(self):
+        """ Gets or creates an SFTP channel.
+        """
+        self.factory.runner.log("getSftpChannel")
+        if self.sftpClient:
+            return self.sftpClient
+        else:
             d = defer.Deferred()
             d.addCallback(self.setSftpClient)
-            d.addCallback(self.performGetRealPath, path)
-
             self.sftpChannel = self.conn.openSftpChannel(d.callback)
             # FIXME: we don't care closing the channel again, until we
             #        terminate the connection
-        else:
-            d = self.performGetRealPath(self.sftpClient, path)
+            return d
+
+    def getRealPath(self, path):
+        d = defer.maybeDeferred(self.getSftpChannel)
+        d.addCallback(self.performGetRealPath, path)
         return d
 
     def performGetRealPath(self, client, path):
@@ -527,29 +536,106 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         return d
 
 
-    def uploadFileData(self, data, destPath):
-        if not self.sftpChannel:
-            d = defer.Deferred()
-            d.addCallback(self.setSftpClient)
-            d.addCallback(self.openFileToUpload, destPath)
 
-            self.sftpChannel = self.conn.openSftpChannel(d.callback)
-            # FIXME: we don't care closing the channel again, until we
-            #        terminate the connection
-        else:
-            d = self.openFileToUpload(self.sftpClient, destPath)
-        d.addCallback(self.writeFileToUpload, data)
+
+    def uploadFile(self, srcPath, destPath):
+        self.factory.runner.log("uploadFile")
+        fd = open(srcPath, 'r')
+        d = defer.maybeDeferred(self.getSftpChannel)
+        d.addCallback(self.openFileToUpload, destPath)
+        d.addCallback(self.triggerDataUpload, fd)
+        d.addCallback(self.closeBothFiles, fd)
+        def _eb(failure):
+            self.factory.runner.log("failure in file transfer: %s" % failure)
+        d.addErrback(_eb)
         return d
 
-    def setSftpClient(self, client):
-        self.sftpClient = client
-        return client
+    def downloadFile(self, srcPath, destPath):
+        self.factory.runner.log("downloadFile")
+        fd = open(destPath, 'w')
+        d = defer.maybeDeferred(self.getSftpChannel)
+        d.addCallback(self.openFileToDownload, srcPath)
+        d.addCallback(self.triggerDataDownload, fd)
+        d.addCallback(self.closeBothFiles, fd)
+        def _eb(failure):
+            self.factory.runner.log("failure in file transfer: %s" % failure)
+        d.addErrback(_eb)
+        return d
 
-    def openFileToUpload(self, client, destPath):
+    def triggerDataUpload(self, remoteFd, localFd):
+        return self.uploadFileChunk(None, remoteFd, localFd, 0)
+
+    def triggerDataDownload(self, remoteFd, localFd):
+        return self.downloadFileChunk(remoteFd, localFd, 0)
+
+    def uploadFileChunk(self, ignoredResult, remoteFd, localFd, offset):
+        self.factory.runner.log("uploadFileChunk (offset: %d, result: %s)" % (offset, repr(ignoredResult)))
+
+        # synchronous read from local file
+        CHUNK_SIZE = 65536
+        data = localFd.read(CHUNK_SIZE)
+
+        d = remoteFd.writeChunk(offset, data)
+        if len(data) == CHUNK_SIZE:
+            d.addCallback(self.uploadFileChunk, remoteFd, localFd, offset + len(data))
+            return d
+        else:
+            self.factory.runner.log("wrote %d bytes in total." % (offset + len(data)))
+            return remoteFd
+
+    def downloadFileChunk(self, remoteFd, localFd, offset=0):
+        self.factory.runner.log("downloadFileChunk (offset: %d, result: %s)" % (offset, repr(ignoredResult)))
+
+        # synchronous read from local file
+        CHUNK_SIZE = 65536
+        d = remoteFd.readChunk(offset, CHUNK_SIZE)
+        d.addCallback(writeDownloadedData, remoteFd, localFd, offset)
+        return d
+
+        data = localFd.read(CHUNK_SIZE)
+
+        d = remoteFd.writeChunk(offset, data)
+        if len(data) == CHUNK_SIZE:
+            d.addCallback(self.uploadFileChunk, remoteFd, localFd, offset + len(data))
+            return d
+        else:
+            self.factory.runner.log("wrote %d bytes in total." % (offset + len(data)))
+            return remoteFd
+
+    def writeDownloadedData(self, data, remoteFd, localFd, offset):
+        if len(data) > 0:
+            localFd.write(data)
+            return self.downloadFileChunk(remoteFd, localFd, offset + len(data))
+        else:
+            self.factory.runner.log("wrote %d bytes in total." % offset)
+            return remoteFd
+
+    def openFileToUpload(self, client, path):
         self.factory.runner.log("openFileToUpload")
         flags = filetransfer.FXF_WRITE | filetransfer.FXF_CREAT | \
                 filetransfer.FXF_TRUNC
-        return client.openFile(destPath, flags, {})
+        return client.openFile(path, flags, {})
+
+    def openFileToDownload(self, client, path):
+        self.factory.runner.log("openFileToDownload")
+        flags = filetransfer.FXF_READ
+        return client.openFile(path, flags, {})
+
+    def closeBothFiles(self, remoteFd, localFd):
+        localFd.close()
+        d = remoteFd.close()
+        return d
+        unused = """
+
+
+
+
+
+    def uploadFileData(self, data, destPath):
+        d = self.getSftpChannel()
+        d.addCallback(self.openFileToUpload, destPath)
+        d.addCallback(self.writeFileToUpload, data)
+        return d
 
     def writeFileToUpload(self, fileHandle, data):
         self.factory.runner.log("writeFileToUpload")
@@ -559,6 +645,8 @@ class SimpleSSHTransport(transport.SSHClientTransport):
             self.factory.runner.log("failure: %s" % failure)
         d.addErrback(_eb)
         return d
+
+        """
 
 
 
@@ -716,11 +804,14 @@ class TestSSHSuite(TestSuite):
     def gotAbsoluteHomeDirectory(self, result):
         self.homeDirectory = result
 
-        fd = open('remhelper.py', 'r')
-        data = fd.read()
-        fd.close()
+        #fd = open('remhelper.py', 'r')
+        #data = fd.read()
+        #fd.close()
 
-        d = self.transport.uploadFileData(data, self.workdir + "/helper.py")
+        #d = self.transport.uploadFileData(data, self.workdir + "/helper.py")
+
+        d = self.transport.uploadFile('remhelper.py', self.workdir + "/helper.py")
+
         d.addCallback(self.transferredRemoteHelper)
 
     def transferredRemoteHelper(self, result):
@@ -970,6 +1061,9 @@ class TestSSHSuite(TestSuite):
     def runCommand(self, cmd):
         return self.transport.runCommand(cmd)
 
+    def uploadFile(self, srcPath, destPath):
+        return self.transport.uploadFile(srcPath, destPath)
+
     def uploadFileData(self, data, destPath):
         return self.transport.uploadFileData(data, destPath)
 
@@ -983,7 +1077,7 @@ class TestSSHSuite(TestSuite):
             return self.joinPath(self.homeDirectory, self.workdir)
 
     def getTempDir(self, desc):
-        result = self.joinPath(self.getWorkDir(), "%04d-%s" % (self.temp_dir_counter, desc))
+        result = self.joinPath(self.getWorkDir(), "%s-%04d" % (desc, self.temp_dir_counter))
         self.temp_dir_counter += 1
         return result
 
