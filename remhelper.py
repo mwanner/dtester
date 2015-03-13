@@ -530,8 +530,12 @@ class Helper:
         self.reportJobDone(jobid)
 
     def startMakedirs(self, jobid, path):
-        os.makedirs(path)
-        self.reportJobDone(jobid)
+        try:
+            os.makedirs(path)
+        except exceptions.OSError, e:
+            self.reportJobFailed(jobid, e.strerror)
+        else:
+            self.reportJobDone(jobid)
 
     def prepareProcess(self, jobid, *cmdline):
         self.jobs[jobid] = ProcessMonitor(self, jobid, cmdline)

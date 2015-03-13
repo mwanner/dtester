@@ -160,7 +160,7 @@ class CommandProcessor:
                         token = ""
                         in_number = False
                     else:
-                        self.logParserError("invalid char outside of token: '%s'" % repr(char))
+                        self.logParserError("invalid char outside of token: '%s' in: %s" % (repr(char), line))
 
         if in_number:
             args.append(int(token))
@@ -244,7 +244,7 @@ class RemoteHelperChannel(channel.SSHChannel, CommandProcessor):
 
 
     def extReceived(self, dataType, data):
-        self.parent.runner.log("WARNING: got ext data from remote helper!?!")
+        self.parent.runner.log("WARNING: got ext data from remote helper!?!: %s" % repr(data))
 
     def eofReceived(self):
         pass
@@ -554,9 +554,6 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         d.addCallback(self.openFileToUpload, destPath)
         d.addCallback(self.triggerDataUpload, fd)
         d.addCallback(self.closeBothFiles, fd)
-        def _eb(failure):
-            self.factory.runner.log("failure in file transfer: %s" % failure)
-        d.addErrback(_eb)
         return d
 
     def downloadFile(self, srcPath, destPath):
@@ -567,9 +564,6 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         d.addCallback(self.openFileToDownload, srcPath)
         d.addCallback(self.triggerDataDownload, fd)
         d.addCallback(self.closeBothFiles, fd)
-        def _eb(failure):
-            self.factory.runner.log("failure in file transfer: %s" % failure)
-        d.addErrback(_eb)
         return d
 
     def triggerDataUpload(self, remoteFd, localFd):
@@ -796,6 +790,7 @@ class TestSSHSuite(TestSuite):
         self.temp_ipv4_port = 32768
 
         self.tearingDown = False
+        self.tearDownDeferred = None
 
         factory = SSHClientFactory(self.runner)
         endpoint = endpoints.TCP4ClientEndpoint(reactor, self.host, self.port)
@@ -813,24 +808,48 @@ class TestSSHSuite(TestSuite):
     def sshServiceStarted(self):
         d = self.transport.getRealPath(".")
         d.addCallback(self.gotAbsoluteHomeDirectory)
-        return d
+        d.addErrback(self.handleRemoteHelperFailure)
 
     def gotAbsoluteHomeDirectory(self, result):
         self.homeDirectory = result
 
+        # Determine the absolute path of our working directory. Note that
+        # remoteInfo isn't installed, yet. So there's no point in calling
+        # joinPath. Instead, we currently use a local joinPath. FIXME.
+
+        def joinPath(a, b):
+            return a + "/" + b
+
+        if self.workdir[0] == '/':
+            self.absWorkdir = self.workdir
+        else:
+            self.absWorkdir = joinPath(result, self.workdir)
+
+        self.helperTargetPath = joinPath(self.homeDirectory,
+                                         ".dtester_helper.py")
+
         #fd = open('remhelper.py', 'r')
         #data = fd.read()
         #fd.close()
+        #d = self.transport.uploadFileData(data, self.helperTargetPath)
 
-        #d = self.transport.uploadFileData(data, self.workdir + "/helper.py")
-
-        d = self.transport.uploadFile('remhelper.py', self.workdir + "/helper.py")
-
+        d = self.transport.uploadFile('remhelper.py', self.helperTargetPath)
         d.addCallback(self.transferredRemoteHelper)
+        return d
 
     def transferredRemoteHelper(self, result):
-        path = self.workdir + "/helper.py"
-        self.remote_helper = self.transport.startRemoteHelper(path)
+        self.remote_helper = self.transport.startRemoteHelper(self.helperTargetPath)
+
+    def handleRemoteHelperFailure(self, failure):
+        errmsg = str(failure.value)
+
+        d = self.setupDeferred
+        self.setupDeferred = None
+        d.errback(Exception("Failed to upload or start remote helper: %s" % errmsg))
+
+        # We set tearingDown already here, because we don't want another
+        # error from connectionLost().
+        self.tearingDown = True
 
     def remoteHelperStarted(self):
         """ Called back from the RemoteHelperChannel.
@@ -859,15 +878,30 @@ class TestSSHSuite(TestSuite):
                 d.errback(Exception("eeeeeeeeeeeee"))
         elif not self.tearingDown:
             raise Exception("Logic ERROR: connection lost during operation!!!")
-        else:
+        elif self.tearDownDeferred is not None:
             self.tearDownDeferred.callback(True)
+        else:
+            # Nothing to do if we are not in tearDown already (i.e. no
+            # tearDownDeferred) but lost connection in setUp or during the
+            # execution of dependent tests.
+            pass
 
     def tearDown(self):
+        if self.transport.connected:
+            d = self.recursiveRemove(self.absWorkdir)
+            d.addCallbacks(self.tearDownConnection)
+            return d
+        else:
+            # This may happen if the connection closes already when failing
+            # to start the remote helper.py during setUp. Nothing else to
+            # tear down in that case.
+            return None
+
+    def tearDownConnection(self, result):
         self.tearingDown = True
         self.tearDownDeferred = defer.Deferred()
         self.transport.close()
         return self.tearDownDeferred
-
 
 
 
@@ -902,8 +936,14 @@ class TestSSHSuite(TestSuite):
             'separator': separator
         }
 
-        d, jobid = self.dispatchCommand("cwd", self.getWorkDirInternal())
-        d.addCallbacks(self.remoteHelperInitialized, self.remoteHelperFailed)
+        # FIXME: maybe drop a pre-existing directory?
+        d = self.makeDirectory(self.absWorkdir)
+        d.addCallbacks(self.workDirCreated, self.remoteHelperFailed)
+
+    def workDirCreated(self, result):
+        d, jobid = self.dispatchCommand("cwd", self.absWorkdir)
+        d.addCallback(self.remoteHelperInitialized)
+        return d
 
     def remoteHelperInitialized(self, result):
         d, self.setupDeferred = self.setupDeferred, None
@@ -1047,7 +1087,7 @@ class TestSSHSuite(TestSuite):
         return self.remoteInfo['hostname']
 
     def getTempDir(self, desc):
-        result = self.joinPath(self.getWorkDirInternal(),
+        result = self.joinPath(self.absWorkdir,
                                "%s-%04d" % (desc, self.temp_dir_counter))
         self.temp_dir_counter += 1
         return result
@@ -1104,15 +1144,6 @@ class TestSSHSuite(TestSuite):
 
     def downloadFile(self, srcPath, destPath):
         return self.transport.downloadFile(srcPath, destPath)
-
-    def getWorkDirInternal(self):
-        if self.workdir[0] == '/':
-            return self.workdir
-        elif self.workdir[0] == '~':
-            return self.homeDirectory + self.workdir[1:]
-        else:
-            # try relative directory
-            return self.joinPath(self.homeDirectory, self.workdir)
 
     def getTempIP4Port(self):
         result = self.temp_ipv4_port
