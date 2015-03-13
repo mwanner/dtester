@@ -31,7 +31,7 @@ class TestFailure(Exception):
     """ An ordinary test failure, used by the L{BaseTest}'s custom check
         routines like L{BaseTest.assertEqual}.
     """
-    def __init__(self, msg, details=""):
+    def __init__(self, msg, details=None):
         Exception.__init__(self, msg)
         self.details = details
 
@@ -59,11 +59,21 @@ class DefinitionError(TestFailure):
     pass
 
 class TestSkipped(Exception):
+    """ Used for intentionally skipped tests.
+    """
     pass
 
-class UnableToRun(TestSkipped):
+class UnableToRun(Exception):
     """ Thrown for tests that are unable to start because a dependent suite
         or test failed to setup or run.
     """
     pass
+
+class FailedDependencies(UnableToRun):
+    def __init__(self, deps):
+        assert isinstance(deps, list) or isinstance(deps, tuple)
+        self.missing_deps = deps
+
+    def __repr__(self):
+        return "failed: %s" % ",".join(self.missing_deps)
 

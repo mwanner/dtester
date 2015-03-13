@@ -1,9 +1,13 @@
 
 ====================
-test_collector failed: collector (2 errors)
+test test_collector failed: collected 2 errors:
 --------------------
+Error: short msg of the first intentional error
+Details:
 True != False
 --------------------
+Error: short msg of the second intentional error
+Details:
 'ape' != 'cow'
 ====================
 test test_failure failed: intentional failure

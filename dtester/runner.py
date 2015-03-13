@@ -10,14 +10,18 @@ scheduling of tests and test suites, running them in parallel based on an
 asynchronous event loop using twisted.
 """
 
-import copy, os, time
+import os, copy, time, shlex
+
+from zope.interface import implements
+
 from twisted.python import failure
 from twisted.internet import defer, reactor
 
 from dtester.test import BaseTest, TestSuite, Timeout
+from dtester.interfaces import IControlledHost
 from dtester.processes import SimpleProcess
 from dtester.exceptions import DefinitionError, TestSkipped, TimeoutError, \
-    TestSkipped, UnableToRun
+    TestSkipped, UnableToRun, FailedDependencies
 from dtester.reporter import reporterFactory
 
 class TestState:
@@ -51,6 +55,81 @@ class TestState:
         return self.suite
 
 
+class Localhost(TestSuite):
+    """ The local host as an IControlledHost object.
+    """
+
+    implements(IControlledHost)
+
+    args = (('wd', str),)
+
+    setUpDescription = None
+    tearDownDescription = None
+
+    def postInit(self):
+        self.temp_dir_counter = 1
+        self.temp_ipv4_port = 32768
+
+    # IControlledHost methods
+    def joinPath(self, *paths):
+        return os.path.join(*paths)
+
+    def getHostName(self):
+        return "localhost"
+
+    def getTempDir(self, desc):
+        result = self.joinPath(os.getcwd(), "tmp-%s-%04d" % (
+            desc, self.temp_dir_counter))
+        self.temp_dir_counter += 1
+        return result
+
+    def makeDirectory(self, path):
+        os.makedirs(path)
+
+    def recursiveRemove(self, top):
+        for root, dirs, files in os.walk(top, topdown=False):
+            # sudo sysctl -w "kernel.core_pattern=core.%e.%p"
+            for name in files:
+                if name[:4] == "core":
+                    if os.path.exists(name):
+                        os.unlink(name)
+                    os.rename(os.path.join(root, name), name)
+                else:
+                    try:
+                        os.remove(os.path.join(root, name))
+                    except OSError:
+                        pass
+            for name in dirs:
+                os.rmdir(os.path.join(root, name))
+        try:
+            os.rmdir(top)
+        except OSError:
+            pass
+
+    def recursiveCopy(self, src, dest, ignore=None):
+        import shutil
+        if ignore:
+            ign_pattern = ignore.split(';')
+            shutil.copytree(src, dest,
+                            ignore=shutil.ignore_patterns(*ign_pattern))
+        else:
+            shutil.copytree(src, dest)
+
+    def getTempIP4Port(self):
+        result = self.temp_ipv4_port
+        self.temp_ipv4_port += 1
+        return result
+
+    def prepareProcess(self, cmdline, cwd=None):
+        if isinstance(cmdline, str):
+            cmdline = shlex.split(cmdline)
+
+        d = defer.Deferred()
+        proc = SimpleProcess(cmdline[0], cmdline[0], cwd, args=cmdline)
+        proc.setTerminationDeferred(d)
+        return proc, d
+
+
 class InitialSuite(TestSuite):
     """ The initial suite providing an initial base environment for all
         tests and suites. Encapsulating functions of the host the tests
@@ -60,51 +139,11 @@ class InitialSuite(TestSuite):
     args = (('config', dict),
             ('env', dict))
 
-    setUpDescription = "initializing test harness"
-    tearDownDescription = "cleaning up test harness"
+    setUpDescription = None
+    tearDownDescription = None
 
     def getConfig(self, name):
         return self.config[name]
-
-    # IRemoteShell commands
-    def runCommand(self, proc_name, executable,
-                   args=None, lineBasedOutput=False):
-        if not args:
-            args = [name]
-
-        process = SimpleProcess(proc_name, executable,
-            args = args, env = self.env, lineBasedOutput=lineBasedOutput)
-
-        if self.config.has_key('main_logging_hook'):
-            process.addHook(*self.config['main_logging_hook'])
-        return process
-
-    def recursive_remove(self, top):
-        for root, dirs, files in os.walk(top, topdown=False):
-            # sudo sysctl -w "kernel.core_pattern=core.%e.%p"
-            for name in files:
-                if name[:4] == "core":
-                    if os.path.exists(name):
-                        os.unlink(name)
-                    os.rename(os.path.join(root, name), name)
-                else:
-                    os.remove(os.path.join(root, name))
-            for name in dirs:
-                os.rmdir(os.path.join(root, name))
-        os.rmdir(top)
-
-    def addEnvPath(self, path):
-        if self.env.has_key('PATH'):
-            self.env['PATH'] = "%s:%s" % (path, self.env['PATH'])
-        else:
-            self.env['PATH'] = path
-
-    def addEnvLibraryPath(self, path):
-        if self.env.has_key('LD_LIBRARY_PATH'):
-            self.env['LD_LIBRARY_PATH'] = "%s:%s" % (
-                path, self.env['LD_LIBRARY_PATH'])
-        else:
-            self.env['LD_LIBRARY_PATH'] = path
 
 
 class Runner:
@@ -130,6 +169,7 @@ class Runner:
             if state.tStatus != 'done':
                 # FIXME: if we'd track dependencies correctly, this should
                 #        not happen.
+                self.reporter.log("FIXME: track dependencies correctly!")
                 self.reporter.stopTest(name, None, "SKIPPED", None)
 
             if state.failure:
@@ -182,17 +222,15 @@ class Runner:
     def cbSuiteTornDown(self, result, suite_name, suite):
         self.test_states[suite_name].tStatus = 'done'
         self.test_states[suite_name].running = False
-        if suite_name != "__system__":
-            self.reporter.stopTearDownSuite(suite_name, suite)
+        self.reporter.stopTearDownSuite(suite_name, suite)
         return None
 
     def ebSuiteTearDownFailed(self, error, suite_name, suite):
         self.test_states[suite_name].tStatus = 'done'
         self.test_states[suite_name].running = False
         self.test_states[suite_name].failure = error
-        if suite_name != "__system__":
-            self.reporter.stopTearDownSuite(suite_name, suite)
-            self.reporter.suiteTearDownFailure(suite_name, error)
+        self.reporter.stopTearDownSuite(suite_name, suite)
+        self.reporter.suiteTearDownFailure(suite_name, error)
         return None
 
     def cbTestSucceeded(self, result, tname, test):
@@ -219,22 +257,64 @@ class Runner:
     def cbSleep(self, result, test):
         return None
 
+    def checkMatchingNeeds(self, ndef, needs):
+        if not len(needs) == len(ndef):
+            return False
+
+        # check if the given class matches the required interface
+        for i in xrange(len(needs)):
+            tname = needs[i]
+            reqInterface = ndef[i][1]
+
+            if isinstance(reqInterface, str):
+                self.reporter.log("==== WARNING: %s should provide real interfaces, not string!" % repr(ndef))
+                continue
+
+            tclass = self.test_states[tname].tClass
+            if not reqInterface.implementedBy(tclass):
+                self.reporter.log("%s (%s) does not implement %s" % (repr(tclass), tname, repr(reqInterface)))
+                return False
+
+        return True
+
     def startupTest(self, tname, tclass, needs, args, deps):
-        if not len(needs) == len(tclass.needs):
-            raise DefinitionError("missing dependencies", 
-                "Test class %s has %d dependencies, but %d were specified for %s." % (
-                tclass.__class__.__name__, len(tclass.needs), len(needs), tname))
-
-        if not len(args) == len(tclass.args):
-            raise DefinitionError("missing arguments", 
-                "Test class %s has %d arguments, but %d were specified for %s." % (
-                tclass.__class__.__name__, len(tclass.args), len(args), tname))
-
         if self.test_states[tname].skip:
             raise TestSkipped("intentionally skipped",
                               "Test %s got skipped intentionally." % tname)
 
-        assert(len(needs) == len(tclass.needs))
+        using_ndef = None
+        if isinstance(tclass.needs, dict) and 'one_of' in tclass.needs:
+            matching_ndefs = []
+            for ndef in tclass.needs['one_of']:
+                if self.checkMatchingNeeds(ndef, needs):
+                    matching_ndefs.append(ndef)
+
+            if len(matching_ndefs) == 0:
+                raise DefinitionError("mismatching requirements",
+                    "Test class %s offers %d different dependency sets, but non of them matched %s." % (
+                        tclass.__name__, len(tclass.needs['one_of']), tname))
+            elif len(matching_ndefs) > 1:
+                raise DefinitionError("ambiguous requirements",
+                    "Test class %s offers %d different dependency sets and %d of them matched %s." % (
+                        tclass.__name__, len(tclass.needs['one_of']), len(matching_ndefs), tname))
+            else:
+                using_ndef = matching_ndefs[0]
+
+        else:
+            if not self.checkMatchingNeeds(tclass.needs, needs):
+               raise DefinitionError("missing dependencies",
+                    "Test class %s has %d dependencies, but %d were specified for %s." % (
+                    tclass.__name__, len(tclass.needs), len(needs), tname))
+
+            using_ndef = tclass.needs
+
+
+
+        if not len(args) == len(tclass.args):
+            raise DefinitionError("missing arguments",
+                "Test class %s has %d arguments, but %d were specified for %s." % (
+                tclass.__name__, len(tclass.args), len(args), tname))
+
         assert(len(args) == len(tclass.args))
 
         # set the test state
@@ -246,13 +326,12 @@ class Runner:
             if state.isRunning():
                 suite = state.getSuite()
                 if suite.running:
-                    kwargs[tclass.needs[i][0]] = suite
+                    kwargs[using_ndef[i][0]] = suite
                 else:
                     raise Exception("error starting %s: test_states says %s is running, but it's not!" % (
                         tname, needs[i]))
             else:
-                raise UnableToRun("error starting %s: unable to run, due to dependency on %s" % (
-                    tname, needs[i]))
+                raise FailedDependencies((needs[i],))
 
         for i in range(len(args)):
             kwargs[tclass.args[i][0]] = args[i]
@@ -265,7 +344,7 @@ class Runner:
             state = self.test_states[needs[i]]
             assert state.isRunning()
             depSuite = state.getSuite()
-            depSuite.children.append(suite)
+            depSuite.addChild(t)
 
         if isinstance(t, TestSuite):
             self.reporter.startSetUpSuite(tname, t)
@@ -285,14 +364,23 @@ class Runner:
 
             to = Timeout("test run timed out", self.testTimeout, d)
             d = to.getDeferred()
-
             d.addCallbacks(self.cbTestSucceeded, self.cbTestFailed,
                            callbackArgs = (tname, t),
                            errbackArgs = (tname, t))
+            d.addCallback(self.cbReleaseParents, tname, t)
             return d
 
         else:
             raise Exception("invalid class specified")
+
+    def cbReleaseParents(self, result, tname, suite):
+        needs = self.test_states[tname].tNeeds
+        for i in xrange(len(needs)):
+            state = self.test_states[needs[i]]
+            assert state.isRunning()
+            depSuite = state.getSuite()
+            depSuite.removeChild(suite)
+        return result
 
     def teardownTest(self, tname):
         state = self.test_states[tname]
@@ -304,12 +392,12 @@ class Runner:
         assert self.test_states[tname].isRunning()
 
         suite = state.getSuite()
-        if tname != "__system__":
-            self.reporter.startTearDownSuite(tname, suite)
+        self.reporter.startTearDownSuite(tname, suite)
 
         to = Timeout("suite tearDown timed out", self.suiteTimeout,
                     defer.maybeDeferred(suite._tearDown))
         d = to.getDeferred()
+        d.addCallback(self.cbReleaseParents, tname, suite)
         d.addCallback(self.cbSuiteTornDown, tname, suite)
         d.addErrback(self.ebSuiteTearDownFailed, tname, suite)
         return d
@@ -415,10 +503,8 @@ class Runner:
         self.t_start = time.time()
         self.reporter.begin(tdef)
 
-        self.parseTestDef(tdef)
-
         # initialize the initial system suite
-        state = TestState(system.__class__, '__system__')
+        state = TestState(system.__class__, 'localhost')
         state.running = True
         state.setSuite(system)
         state.tStatus = 'running'
@@ -426,7 +512,9 @@ class Runner:
         state.tNeeds = []
         state.tDependencies = []
         state.tOnlyAfter = []
-        self.test_states['__system__'] = state
+        self.test_states['localhost'] = state
+
+        self.parseTestDef(tdef)
 
         # mark the system suite as running
         system.running = True
@@ -443,15 +531,15 @@ class Runner:
         (runnableTests, terminatableTests, runningTests) = \
             self.checkDependencies()
         if 0:
-            print "-----------------------------------------------------"
-            print "runnable Tests: %s" % str(runnableTests)
-            print "terminatable Tests: %s" % str(terminatableTests)
-            print "running Tests: %s" % str(runningTests)
-            print "    test states:"
+            self.reporter.log("-----------------------------------------------------")
+            self.reporter.log("runnable Tests: %s" % str(runnableTests))
+            self.reporter.log("terminatable Tests: %s" % str(terminatableTests))
+            self.reporter.log("running Tests: %s" % str(runningTests))
+            self.reporter.log("    test states:")
             for tname, t in self.test_states.iteritems():
                 if t.tStatus not in ('done', 'waiting'):
                     spaces = " " * (30 - len(tname))
-                    print "        %s:%s%s" % (tname, spaces, t.tStatus)
+                    self.reporter.log("        %s:%s%s" % (tname, spaces, t.tStatus))
 
         if len(runnableTests) + len(terminatableTests) == 0:
             return None
@@ -501,10 +589,12 @@ class Runner:
         result = "ERROR"
         if isinstance(inner_error, TestSkipped):
             result = "SKIPPED"
+        elif isinstance(inner_error, UnableToRun):
+            result = "UX-SKIP"
         elif isinstance(inner_error, TimeoutError):
             result = "TIMEOUT"
 
-        self.reporter.stopTest(tname, t, result, error)
+        self.reporter.stopTest(tname, t.suite, result, error)
         return None
 
     def log(self, msg):
@@ -529,6 +619,8 @@ class Runner:
                 #print "    dependency: %s: status: %s" % (dep_name, self.test_states[dep_name].tStatus)
                 d = self.test_states[dep_name]
                 if d.tStatus in ('waiting', 'starting', 'failed'):
+                    unready_dependencies += 1
+                elif d.tStatus in ('running') and not d.getSuite().readyForChild(name):
                     unready_dependencies += 1
 
             for dep_name in t.tOnlyAfter:

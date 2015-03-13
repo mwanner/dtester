@@ -12,11 +12,21 @@ accompanying file LICENSE).
 """
 
 import sys, dtester
+from zope.interface import implements
+from zope.interface.interface import Interface
+
 import dtester
+
+class ISampleTestSuite(Interface):
+    def sayHello():
+        """ An example method to say hello. """
+
 
 class NestedSuite(dtester.test.TestSuite):
     """ A sample suite adding a nested test
     """
+
+    implements(ISampleTestSuite)
 
     def setUp(self):
         tdef = {
@@ -41,13 +51,16 @@ class SampleTestSuite(dtester.test.TestSuite):
     def tearDown(self):
         pass
 
+    def sayHello(self):
+        pass
+
 
 class SampleTest(dtester.test.SyncTest):
 
     description = "simple test"
 
     # FIXME: ISampleTestSuite isn't implemented nor checked
-    needs = (('s1', 'ISampleTestSuite'),)
+    needs = (('s1', ISampleTestSuite),)
 
     def run(self):
         # print "running a sample test"

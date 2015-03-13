@@ -204,18 +204,23 @@ class readCmdPipeDispatcher(readPipeDispatcher, CommandProcessor):
         self.parent.reportCmdError("parser error: %s" % msg)
 
     def processCommand(self, cmd, args):
-        if cmd == 'remove':
+        if cmd == 'cwd':
+            if len(args) != 2:
+                self.parent.reportCmdError('cwd expects exactly two arguments')
+            else:
+                self.parent.changeWorkingDirectory(*args)
+        elif cmd == 'remove':
             # recursive remove
             if len(args) != 2:
                 self.parent.reportCmdError('remove expects exactly two arguments')
             else:
                 self.parent.startRemove(*args)
         elif cmd == 'makedirs':
-             # recursive remove
+             # makedirs
             if len(args) != 2:
-                self.parent.reportCmdError('remove expects exactly two arguments')
+                self.parent.reportCmdError('makedirs expects exactly two arguments')
             else:
-                self.parent.startRemove(*args)
+                self.parent.startMakedirs(*args)
         elif cmd == 'copy':
             # copy (recursive as well)
             if len(args) < 3 or len(args) > 4:
@@ -341,7 +346,7 @@ class ProcessMonitor:
         if use_shell:
             self.cmdline = " ".join(self.cmdline)
 
-        fd = open("/tmp/log", "a")
+        fd = open("remhelper.log", "a")
         fd.write("cmdline: %s\n" % repr(self.cmdline))
         fd.write("cwd: %s\n" % repr(self.cwd))
         fd.write("environment: %s\n" % repr(self.env))
@@ -389,7 +394,8 @@ class ProcessMonitor:
 
     def stop_subprocess(self):
         os.kill(self.proc.pid, signal.SIGTERM)
-        # FIXME: should check whether or not the process terminated, possibly send a SIGKILL later on
+        # FIXME: should check whether or not the process terminated,
+        # possibly send a SIGKILL later on
 
     def close_pipe(self, name):
         if self.out_pipe and self.err_pipe:
@@ -469,6 +475,13 @@ class Helper:
         if name == "__cmd":
             self.terminate()
 
+    def changeWorkingDirectory(self, jobid, path):
+        try:
+            os.chdir(path)
+        except exceptions.OSError, e:
+            self.reportJobFailed(jobid, e.strerror)
+        else:
+            self.reportJobDone(jobid)
 
     def startRemove(self, jobid, path):
         try:

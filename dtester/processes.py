@@ -13,7 +13,7 @@ classes
 import os, signal
 from twisted.internet import protocol, reactor
 from dtester.events import EventSource, ProcessEndedEvent, \
-                           ProcessOutputEvent, ProcessErrorEvent
+                           ProcessOutStreamEvent, ProcessErrStreamEvent
 
 class SimpleProcessProtocol(protocol.ProcessProtocol):
     """ A simple protocol helper for L{SimpleProcess}, generating events
@@ -26,10 +26,12 @@ class SimpleProcessProtocol(protocol.ProcessProtocol):
         self.transport.closeStdin()
 
     def outReceived(self, data):
-        self.eventSource.throwEvent(ProcessOutputEvent, data)
+        self.eventSource.logOutputData(data)
+        self.eventSource.throwEvent(ProcessOutStreamEvent, data)
 
     def errReceived(self, data):
-        self.eventSource.throwEvent(ProcessErrorEvent, data)
+        self.eventSource.logErrorData(data)
+        self.eventSource.throwEvent(ProcessErrStreamEvent, data)
 
     def processEnded(self, status):
         self.eventSource.processEnded(status.value.exitCode)
@@ -48,14 +50,16 @@ class SimpleProcessLineBasedProtocol(SimpleProcessProtocol):
         self.outBuffer += data
         lines = self.outBuffer.split("\n")
         for line in lines[:-1]:
-            self.eventSource.throwEvent(ProcessOutputEvent, line)
+            self.eventSource.logOutputData(line + "\n")
+            self.eventSource.throwEvent(ProcessOutStreamEvent, line)
         self.outBuffer = lines[-1]
 
     def outReceived(self, data):
         self.errBuffer += data
         lines = self.errBuffer.split("\n")
         for line in lines[:-1]:
-            self.eventSource.throwEvent(ProcessErrorEvent, line)
+            self.eventSource.logErrorData(line + "\n")
+            self.eventSource.throwEvent(ProcessErrStreamEvent, line)
         self.errBuffer = lines[-1]
 
 class SimpleProcess(EventSource):
@@ -64,7 +68,7 @@ class SimpleProcess(EventSource):
         channels as well as process termination.
     """
     def __init__(self, proc_name, executable, cwd=os.getcwd(), args=None,
-                 env=[], lineBasedOutput=False):
+                 env=None, lineBasedOutput=False):
         EventSource.__init__(self)
 
         # FIXME: better argumnt checking required here:
@@ -79,30 +83,68 @@ class SimpleProcess(EventSource):
 
         self.proc_name = proc_name
         self.cwd = cwd
-        self.env = env
+
+        if env:
+            self.env = env
+        else:
+            self.env = os.environ
+
         self.running = False
 
-        if not args:
-            args = [executable]
+        if args:
+            self.args = args
+        else:
+            self.args = [executable]
+
+        self.tdeferred = None
+        self.outLogFile = None
+        self.errLogFile = None
+
+    def addEnvVar(self, key, value):
+        # perform substitution
+        for k, v in self.env.iteritems():
+            value = value.replace("$" + k, v)
+            value = value.replace("${" + k + "}", v)
+
+        self.env[key] = value
+
+    def setLogfiles(self, outlog, errlog):
+        # FIXME: hm.. this should get collected into a single log file or
+        # something...  additionally, the last log (or error) lines should
+        # be displayed in case of an error.
+        self.outLogFile = open(outlog, 'w')
+        self.errLogFile = open(errlog, 'w')
+
+    def setTerminationDeferred(self, d):
+        self.tdeferred = d
+
+    def logOutputData(self, data):
+        if self.outLogFile:
+            self.outLogFile.write(data)
+
+    def logErrorData(self, data):
+        if self.errLogFile:
+            self.errLogFile.write(data)
+
+    def start(self):
+        executable = self.args[0]
 
         executable_exists = False
 
         if executable[0] == '/':
             executable_exists = os.path.exists(executable)
         else:
-            for path in env['PATH'].split(':'):
-                if os.path.exists(os.path.join(path, executable)):
-                    executable_exists = True
-                    break
+            if 'PATH' in self.env:
+                for path in self.env['PATH'].split(':'):
+                    if os.path.exists(os.path.join(path, executable)):
+                        executable = os.path.join(path, executable)
+                        executable_exists = True
+                        break
 
-        if executable_exists:
-            self.executable = executable
-            self.args = args
-        else:
+        if not executable_exists:
             raise IOError("No such executable file: %s" % executable)
 
-    def start(self):
-        reactor.spawnProcess(self.protocol, self.executable,
+        reactor.spawnProcess(self.protocol, executable,
                              args=self.args, path=self.cwd, env=self.env,
                              usePTY=True)
         self.running = True
@@ -113,6 +155,15 @@ class SimpleProcess(EventSource):
             exitCode = 0
         assert isinstance(exitCode, int)
         self.throwEvent(ProcessEndedEvent, exitCode)
+
+        if self.tdeferred:
+            reactor.callLater(0.0, self.tdeferred.callback, exitCode)
+
+        if self.outLogFile:
+            self.outLogFile.close()
+        if self.errLogFile:
+            self.errLogFile.close()
+
         self.running = False
 
     def stop(self, sig=signal.SIGTERM):
@@ -138,6 +189,9 @@ class SimpleProcess(EventSource):
 
     def write(self, *args, **kwargs):
         self.protocol.transport.write(*args, **kwargs)
+
+    def closeStdin(self):
+        self.protocol.transport.closeStdin()
 
     def __repr__(self):
         return "%s" % self.proc_name

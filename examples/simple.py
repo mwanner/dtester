@@ -12,9 +12,19 @@ accompanying file LICENSE).
 """
 
 import sys, dtester
+from zope.interface import implements
+from zope.interface.interface import Interface
+
 import dtester
 
+
+class ISampleTestSuite(Interface):
+    pass
+
+
 class TestTestSuite(dtester.test.TestSuite):
+
+    implements(ISampleTestSuite)
 
     def setUpDescription(self):
         return "starting test test suite"
@@ -32,7 +42,7 @@ class SingleUsesTest(dtester.test.SyncTest):
 
     description = "simple test"
 
-    needs = (('s1', 'ITestTestSuite'),)
+    needs = (('s1', ISampleTestSuite),)
 
     def run(self):
         # print "running a sample test"
@@ -42,8 +52,8 @@ class DoubleUsesTest(dtester.test.SyncTest):
 
     description = "double test"
 
-    needs = (('s1', 'ITestTestSuite'),
-             ('s2', 'ITestTestSuite'))
+    needs = (('s1', ISampleTestSuite),
+             ('s2', ISampleTestSuite))
 
     def run(self):
         # print "running a sample test"
@@ -54,7 +64,7 @@ class FailingTest(dtester.test.SyncTest):
 
     description = "a failing test"
 
-    needs = (('s1', 'ITestTestSuite'),)
+    needs = (('s1', ISampleTestSuite),)
 
     def run(self):
         raise Exception("a test failure")
@@ -64,7 +74,7 @@ class UnsuccTest(dtester.test.SyncTest):
 
     description = "an unsuccessful test"
 
-    needs = (('s1', 'ITestTestSuite'),)
+    needs = (('s1', ISampleTestSuite),)
 
     def run(self):
         self.assertEqual(1, 2, "failure description")
@@ -74,7 +84,7 @@ class UnsuccTest2(dtester.test.BaseTest):
 
     description = "an unsuccessful test"
 
-    needs = (('s1', 'ITestTestSuite'),)
+    needs = (('s1', ISampleTestSuite),)
 
     def run(self):
         self.log("test log message")

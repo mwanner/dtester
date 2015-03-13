@@ -1,0 +1,11 @@
+        s2: nothing to set up
+        s1: nothing to set up
+        var_needs1: test started
+LOG     needs satisfy variant 1
+OK      var_needs1: test with variable needs
+        var_needs2: test started
+LOG     needs satisfy variant 2
+OK      var_needs2: test with variable needs
+        s2: nothing to tear down
+        s1: nothing to tear down
+2 tests successfully processed.

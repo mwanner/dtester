@@ -2,5 +2,5 @@
 ====================
 test test_with_dep failed: missing dependencies
 --------------------
-Test class type has 1 dependencies, but 0 were specified for test_with_dep.
+Test class SingleDepTest has 1 dependencies, but 0 were specified for test_with_dep.
 

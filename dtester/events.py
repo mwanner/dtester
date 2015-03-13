@@ -10,30 +10,41 @@ definition of events, their sources and matchers as well as some event
 classes
 """
 
-from twisted.internet import defer
+from twisted.internet import defer, reactor
+
+class EventHook:
+    """ A hook on a certain event, which fires a callback.
+    """
+    def __init__(self, ev_source, matcher, cb):
+        self.ev_source = ev_source
+        self.matcher = matcher
+        self.cb = cb
+
+    def fireCallback(self, event):
+        self.cb(event)
 
 class EventSource:
     """ An abstract object representing any kind of process, workflow or
         background job that emits L{events<Event>}.
     """
     def __init__(self):
-        self.hooks = {}
-        self.maxHookId = 0
+        self.hooks = set()
 
-    def throwEvent(self, eventClass, *args, **kargs):
-        event = eventClass(self, *args, **kargs)
-        for hid, hook in self.hooks.items():
-            if hook[0].matches(event):
-                hook[1](event, *hook[2], **hook[3])
+    def throwEvent(self, eventClass, *args, **kwargs):
+        event = eventClass(self, *args, **kwargs)
+        for hook in self.hooks:
+            if hook.matcher.matches(event):
+                reactor.callLater(0.0, hook.fireCallback, event)
 
-    def addHook(self, matcher, callback, *args, **kargs):
+    def addHook(self, matcher, callback):
         assert callable(callback), "callback function must be callable"
-        self.maxHookId += 1
-        self.hooks[self.maxHookId] = (matcher, callback, args, kargs)
-        return self.maxHookId
+        newHook = EventHook(self, matcher, callback)
+        self.hooks.add(newHook)
+        return newHook
 
-    def removeHook(self, maxHookId):
-        del self.hooks[maxHookId]
+    def removeHook(self, hook):
+        assert hook in self.hooks
+        self.hooks.remove(hook)
 
 class Event:
     """ Base class for all events.
@@ -50,9 +61,10 @@ class Event:
 class EventMatcher(object):
     """ A matcher that compares L{events<Event>} against a certain criterion.
     """
-    def __init__(self, eventClass, *args, **kargs):
+    def __init__(self, eventClass, *args, **kwargs):
         self.eventClass = eventClass
         self.args = args
+        self.kwargs = kwargs
         self.defer = defer.Deferred()
 
     def getDefer(self):
@@ -60,7 +72,7 @@ class EventMatcher(object):
 
     def matches(self, event):
         if isinstance(event, self.eventClass):
-            return event.matches(*self.args)
+            return event.matches(*self.args, **self.kwargs)
 
 
 class StreamDataEvent(Event):
@@ -74,9 +86,9 @@ class StreamDataEvent(Event):
         Event.__init__(self, source)
         self.data = data
 
-    def matches(self, needle=None):
-        if needle:
-            return (self.data.find(needle) >= 0)
+    def matches(self, pattern=None):
+        if pattern:
+            return (self.data.find(pattern) >= 0)
         else:
             return True
 
@@ -84,7 +96,7 @@ class StreamDataEvent(Event):
         return "[%s] %s: %s" % (self.source, self.name, self.data)
 
 
-class ProcessOutputEvent(StreamDataEvent):
+class ProcessOutStreamEvent(StreamDataEvent):
     """ The event thrown by L{SimpleProcess} for every output to its standard
         output channel.
     """
@@ -92,7 +104,7 @@ class ProcessOutputEvent(StreamDataEvent):
     name = 'out'
 
 
-class ProcessErrorEvent(StreamDataEvent):
+class ProcessErrStreamEvent(StreamDataEvent):
     """ The event thrown by L{SimpleProcess} for every output to its standard
         error channel.
     """
@@ -114,44 +126,4 @@ class ProcessEndedEvent(Event):
     def __repr__(self):
         return "[%s] terminated with error code %s" % (
             self.source, self.exitCode)
-
-
-
-
-class RemoteStreamDataEvent(Event):
-    """ An abstract class for events emitted by
-        L{RemoteProcessExecutionChannel} for every kind of output to any
-        channel.
-    """
-
-    name = 'RemoteDataEvent'
-
-    def __init__(self, source, data):
-        Event.__init__(self, source)
-        self.data = data
-
-    def matches(self, needle=None):
-        if needle:
-            return (self.data.find(needle) >= 0)
-        else:
-            return True
-
-    def __repr__(self):
-        return "[%s] %s: %s" % (self.source, self.name, self.data)
-
-
-class RemoteProcessOutputEvent(RemoteStreamDataEvent):
-    """ The event thrown by L{SimpleProcess} for every output to its standard
-        output channel.
-    """
-
-    name = 'out'
-
-
-class RemoteProcessErrorEvent(RemoteStreamDataEvent):
-    """ The event thrown by L{SimpleProcess} for every output to its standard
-        error channel.
-    """
-
-    name = 'err'
 

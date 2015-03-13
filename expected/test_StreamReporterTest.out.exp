@@ -1,10 +1,11 @@
         test_collector: test started
-FAILED  test_collector - collector in dtester/test.py:310
+FAILED  test_collector - collector in dtester/test.py
         test_failure: test started
-FAILED  test_failure - intentional failure in dtester/dtests.py:48
+FAILED  test_failure - intentional failure in dtester/dtests.py
         test_success: test started
 OK      test_success: a test that succeeds
-        test_suite: test started
-OK      test_suite: a test that succeeds
-SKIPPED test_single_dep
-Run 5 tests: 2 succeeded 3 failed.
+        test_suite: nothing to set up
+        test_single_dep: test started
+OK      test_single_dep: one dependency test
+        test_suite: nothing to tear down
+Run 4 tests: 2 succeeded 2 failed.

@@ -29,13 +29,24 @@ class BaseTest(object):
     def __init__(self, runner, *args, **kwargs):
         self.runner = runner
         assert(len(args) == 0)
-        for n in self.needs:
-            setattr(self, n[0], kwargs[n[0]])
-        for a in self.args:
-            setattr(self, a[0], kwargs[a[0]])
+
+        # FIXME: maybe these should not be set as attributes?
+        for k, v in kwargs.iteritems():
+            setattr(self, k, v)
+
+        #for n in self.needs:
+        #    setattr(self, n[0], kwargs[n[0]])
+        #for a in self.args:
+        #    setattr(self, a[0], kwargs[a[0]])
         self.wait_deferred = None
         self.running = False
         self.aborted = False
+
+        if hasattr(self, "postInit"):
+            self.postInit()
+
+    def getLocalHost(self):
+        return self.runner.test_states['__system__'].getSuite()
 
     def waitFor(self, source, matcher):
         d = defer.Deferred()
@@ -125,7 +136,7 @@ class BaseTest(object):
         d = defer.Deferred()
         for cmd in cmds:
             def ignoreResult(result, func, *args):
-                return func(*args)
+                return defer.maybeDeferred(func, *args)
             d.addCallback(ignoreResult, cmd[0], *cmd[1:])
         d.callback(None)
         return d
@@ -279,12 +290,47 @@ class TestSuite(BaseTest):
         d.addErrback(self.setUpFailure)
         return d
 
+    def addChild(self, child):
+        assert child not in self.children
+        self.children.append(child)
+
+    def removeChild(self, child):
+        assert child in self.children
+        self.children.remove(child)
+
+    def readyForChild(self, child_name):
+        return True
+
     def _abort(self, result):
         BaseTest._abort(self, result)
         for c in self.children:
             if c == self:
                 continue
             c._abort(TestDependantAbort())
+
+class Resource(TestSuite):
+    """ A test suite that only allows a single user at a time, usually more
+        like a resource than a service.
+    """
+
+    def readyForChild(self, child_name):
+        return len(self.children) == 0
+
+    def addChild(self, child):
+        TestSuite.addChild(self, child)
+        self.acquireResource(child)
+
+    def removeChild(self, child):
+        self.releaseResource()
+        TestSuite.removeChild(self, child)
+
+
+    def acquireResource(self, owner):
+        pass
+
+    def releaseResource(self):
+        pass
+
 
 class AssertionCollector:
 
@@ -308,4 +354,3 @@ class AssertionCollector:
                 raise errors[0]
             else:
                 raise FailureCollection(self.short_desc, errors)
-

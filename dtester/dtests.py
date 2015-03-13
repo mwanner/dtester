@@ -14,7 +14,13 @@ import time
 
 from twisted.internet import defer
 
+from zope.interface import implements, interface
+
 import exceptions, reporter, runner, test
+
+class IMockTestSuite(interface.Interface):
+    """ Meaningless sample interface to be implemented and checked against.
+    """
 
 #
 # Sub-tests, which are triggered within the nested test harness
@@ -28,15 +34,23 @@ class SucceedingTest(test.BaseTest):
 
 class NoOpSuite(test.TestSuite):
 
+    description = "a no-op test"
+
+    implements(IMockTestSuite)
+
     setUpDescription = "nothing to set up"
-
-    def setUp(self):
-        pass
-
     tearDownDescription = "nothing to tear down"
 
-    def tearDown(self):
-        pass
+class SingleDepSuite(test.TestSuite):
+
+    description = "one dependency suite"
+
+    implements(IMockTestSuite)
+
+    needs = (('dep1', IMockTestSuite),)
+
+    setUpDescription = "nothing to set up"
+    tearDownDescription = "nothing to tear down"
 
 class FailingTest(test.BaseTest):
 
@@ -51,13 +65,23 @@ class SingleDepTest(test.BaseTest):
 
     description = "one dependency test"
 
-    needs = (('dep1', 'ITestTestSuite'),)
+    needs = (('dep1', IMockTestSuite),)
 
     def run(self):
         self.assertEqual(True, hasattr(self, "dep1"),
                         "dep1 is not defined")
         self.assertNotEqual(None, self.dep1,
                         "dep1 is null")
+
+class DualDepTest(test.BaseTest):
+
+    description = "one dependency test"
+
+    needs = (('dep1', IMockTestSuite),
+             ('dep2', IMockTestSuite))
+
+    def run(self):
+        pass
 
 class ThrowsMultipleErrors(test.BaseTest):
 
@@ -66,9 +90,9 @@ class ThrowsMultipleErrors(test.BaseTest):
     def run(self):
         coll = test.AssertionCollector("collector")
         coll.append(self.assertEqual, True, False,
-                    "long description of the first error")
+                    "short msg of the first intentional error")
         coll.append(self.assertEqual, "ape", "cow",
-                    "long description of the second error")
+                    "short msg of the second intentional error")
         coll.check()
 
 
@@ -81,7 +105,8 @@ class AbstractSelfTest(test.BaseTest):
     SUITE_TIMEOUT = 15
 
     def createReporter(self, outs, errs):
-        return reporter.StreamReporter(outs, errs, showTimingInfo=False)
+        return reporter.StreamReporter(outs, errs,
+            showTimingInfo=False, showLineNumbers=False)
 
     def run(self):
         fn = "test_" + self.__class__.__name__
@@ -136,7 +161,7 @@ class StreamReporterTest(AbstractSelfTest):
     tdef = {
         'test_success': {"class": SucceedingTest},
         'test_failure': {"class": FailingTest},
-        'test_suite': {"class": SucceedingTest},
+        'test_suite': {"class": NoOpSuite},
         'test_single_dep': {"class": SingleDepTest,
                             "uses": ["test_suite"]},
         'test_collector': {"class": ThrowsMultipleErrors}
@@ -149,11 +174,15 @@ class TapReporterTest(AbstractSelfTest):
     tdef = {
         'test_success': {"class": SucceedingTest},
         'test_failure': {"class": FailingTest},
+        'test_suite': {"class": NoOpSuite},
+        'test_single_dep': {"class": SingleDepTest,
+                            "uses": ["test_suite"]},
         'test_collector': {"class": ThrowsMultipleErrors}
         }
 
     def createReporter(self, outs, errs):
-        return reporter.TapReporter(outs, errs, showTimingInfo=False)
+        return reporter.TapReporter(outs, errs,
+                                     showTimingInfo=False, showLineNumbers=False)
 
 class MissingNeed(AbstractSelfTest):
 
@@ -181,22 +210,20 @@ class InfiniteLoopTest(test.SyncTest):
 
 class SetUpTimeoutSuite(test.TestSuite):
 
+    implements(IMockTestSuite)
+
     setUpDescription = "endless setUp"
 
     def setUp(self):
         return defer.Deferred()
 
-    tearDownDescription = "nothing to tear down"
-
-    def tearDown(self):
-        pass
+    tearDownDescription = None
 
 class TearDownTimeoutSuite(test.TestSuite):
 
-    setUpDescription = "nothing to setup"
+    implements(IMockTestSuite)
 
-    def setUp(self):
-        pass
+    setUpDescription = None
 
     tearDownDescription = "endless tear down"
 
@@ -221,4 +248,77 @@ class TimeoutTest(AbstractSelfTest):
         'endless_teardown': {"class": TearDownTimeoutSuite},
         'endless_teardown_user': {"class": SingleDepTest,
                                   "uses": ["endless_teardown"]},
+        }
+
+
+
+class VariableNeedsSuite(test.BaseTest):
+
+    description = "test with variable needs"
+
+    needs = {'one_of': (
+        (('aaa', IMockTestSuite),),
+        (('bbb', IMockTestSuite), ('ccc', IMockTestSuite),)
+    )}
+
+    def run(self):
+        if hasattr(self, 'aaa'):
+            self.runner.log("needs satisfy variant 1")
+        elif hasattr(self, 'bbb') and hasattr(self, 'ccc'):
+            self.runner.log("needs satisfy variant 2")
+        else:
+            raise TestFailure("no variant of requirements satisfied", "")
+
+class VariableNeeds(AbstractSelfTest):
+
+    description = "checks for variable needs"
+
+    tdef = {
+        's1': {"class": NoOpSuite },
+        's2': {"class": NoOpSuite },
+
+        'var_needs1': {"class": VariableNeedsSuite, "uses": ('s1',)},
+        'var_needs2': {"class": VariableNeedsSuite, "uses": ('s1', 's2')},
+        }
+
+
+class ResourceSuite(test.Resource):
+
+    description = "test resource"
+
+    implements(IMockTestSuite)
+
+    setUpDescription = "nothing to set up"
+
+    def setUp(self):
+        pass
+
+    tearDownDescription = "nothing to tear down"
+
+    def tearDown(self):
+        pass
+
+    def acquireResource(self, owner):
+        test.Resource.acquireResource(self, owner)
+        self.runner.log("resource acquired")
+
+    def releaseResource(self):
+        test.Resource.releaseResource(self)
+        self.runner.log("resource released")
+
+
+class ResourceTest(AbstractSelfTest):
+
+    description = "checks for proper use of resources"
+
+    tdef = {
+        'resource': {"class": ResourceSuite },
+
+        'suite': {"class": SingleDepSuite, 'uses': ('resource',) },
+
+        'u1': {"class": SingleDepTest, 'uses': ('resource',)},
+        'u2': {"class": SingleDepTest, 'uses': ('suite',)},
+        'u3': {"class": SingleDepTest,
+               'uses': ('resource',),
+               'onlyAfter': ('u2',)}
         }

@@ -10,13 +10,19 @@ accompanying file LICENSE).
 """
 
 import os, struct, shlex
+
+from zope.interface import implements
+
 from twisted.python import failure
 from twisted.internet import protocol, reactor, defer, endpoints
 from twisted.conch.ssh import common, channel, connection, filetransfer, \
                               userauth, session, transport, keys
 from twisted.conch.client import default, direct, options
+
 from dtester.test import TestSuite
-from dtester.events import EventSource, RemoteProcessOutputEvent, RemoteProcessErrorEvent
+from dtester.interfaces import IControlledHost
+from dtester.events import EventSource, EventMatcher, \
+                           ProcessOutStreamEvent,  ProcessErrStreamEvent
 
 class RemoteShellChannel(channel.SSHChannel):
     name = 'session'
@@ -293,7 +299,7 @@ class RemoteProcessExecutionChannel(channel.SSHChannel):
         idx = buf.find("\n")
         while idx >= 0:
             line = buf[:idx]
-            self.eventsource.throwEvent(RemoteProcessOutputEvent, line)
+            self.eventsource.throwEvent(ProcessOutStreamEvent, line)
             buf = buf[idx+1:]
             idx = buf.find("\n")
 
@@ -304,7 +310,7 @@ class RemoteProcessExecutionChannel(channel.SSHChannel):
         idx = buf.find("\n")
         while idx >= 0:
             line = buf[:idx]
-            self.eventsource.throwEvent(RemoteProcessOutputEvent, line)
+            self.eventsource.throwEvent(ProcessOutStreamEvent, line)
             buf = buf[idx+1:]
             idx = buf.find("\n")
 
@@ -317,7 +323,6 @@ class RemoteProcessExecutionChannel(channel.SSHChannel):
         self.loseConnection()
 
     def closed(self):
-        # self.eventsource.throwEvent(RemoteProcessOutputLineEvent, line)
         self.commandTerminated.callback({'exitCode': self.exitCode,})
 
 class SftpChannel(channel.SSHChannel):
@@ -539,7 +544,8 @@ class SimpleSSHTransport(transport.SSHClientTransport):
 
 
     def uploadFile(self, srcPath, destPath):
-        self.factory.runner.log("uploadFile")
+        self.factory.runner.log("uploadFile: %s => %s" % (
+            repr(srcPath), repr(destPath)))
         fd = open(srcPath, 'r')
         d = defer.maybeDeferred(self.getSftpChannel)
         d.addCallback(self.openFileToUpload, destPath)
@@ -551,7 +557,8 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         return d
 
     def downloadFile(self, srcPath, destPath):
-        self.factory.runner.log("downloadFile")
+        self.factory.runner.log("downloadFile: %s => %s" % (
+            repr(srcPath), repr(destPath)))
         fd = open(destPath, 'w')
         d = defer.maybeDeferred(self.getSftpChannel)
         d.addCallback(self.openFileToDownload, srcPath)
@@ -686,34 +693,15 @@ class SSHClientFactory(protocol.ClientFactory):
     #    print "ConnectionFailed...\n"
 
 
-class RemoteProcessHook:
-
-    def __init__(self, parent, jobid, hookid):
-        self.parent = parent
-        self.jobid = jobid
-        self.hookid = hookid
-
-    def setCallback(self, cb, args, kwargs):
-        self.cb = cb
-        self.args = args
-        self.kwargs = kwargs
-
-    def drop(self):
-        self.parent.dropProcessHook(self.jobid, self.hookid)
-
-    def callback(self, line):
-        self.cb(line, *self.args, **self.kwargs)
-
-
-class RemoteProcess:
+class RemoteProcess(EventSource):
 
     def __init__(self, parent, td, jobid):
+        EventSource.__init__(self)
         self.parent = parent
         self.terminationDeferred = td
         self.jobid = jobid
         self.pid = None
-
-        self.hooks = {}
+        self.hooksByRemoteId = {}
 
     def addEnvVar(self, name, value):
         self.parent.addProcessEnv(self.jobid, name, value)
@@ -740,21 +728,45 @@ class RemoteProcess:
     def gotPid(self, pid):
         self.pid = pid
 
-    def addHook(self, stream, pattern, cb, *args, **kwargs):
-        hookid = self.parent.addProcessHook(self.jobid, stream, pattern)
-        hook = RemoteProcessHook(self.parent, self.jobid, hookid)
-        hook.setCallback(cb, args, kwargs)
-        self.hooks[hookid] = hook
+    def addHook(self, matcher, callback):
+        hook = EventSource.addHook(self, matcher, callback)
+
+        # Install the hook on the remote node, so it pings us back for
+        # every match.
+        if matcher.eventClass == ProcessOutStreamEvent:
+            stream = "out"
+        elif matcher.eventClass == ProcessErrStreamEvent:
+            stream = "err"
+        else:
+            raise Exception("unknown event type")
+        pattern = matcher.kwargs['pattern']
+
+        hook_id = self.parent.addProcessHook(self.jobid, stream, pattern)
+        hook.remote_hook_id = hook_id
+        self.hooksByRemoteId[hook_id] = hook
         return hook
 
-    # called from the TestSSHSuite, not public API
-    def triggerHook(self, hookid, line):
-        assert hookid in self.hooks
-        hook = self.hooks[hookid]
-        hook.callback(line)
+    def removeHook(self, hook):
+        hook_id = hook.remote_hook_id
+        self.parent.dropProcessHook(self.jobid, hook_id)
+        EventSource.removeHook(self, hook)
+        assert hook.remote_hook_id in self.hooksByRemoteId
+        del self.hooksByRemoteId[hook.remote_hook_id]
 
+    def triggerHookCallback(self, hook_id, ev_data):
+        """ Called from the TestSSHSuite, not public API! Also note that
+            this may be called for hooks that have already been removed
+            locally due to the network delay. In that case, it is simply
+            ignored.
+        """
+        if hook_id in self.hooksByRemoteId:
+            hook = self.hooksByRemoteId[hook_id]
+            event = hook.matcher.eventClass(self, ev_data)
+            hook.fireCallback(event)
 
 class TestSSHSuite(TestSuite):
+
+    implements(IControlledHost)
 
     args = (('user', str),
             ('host', str),
@@ -791,7 +803,6 @@ class TestSSHSuite(TestSuite):
         return self.setupDeferred
 
     def startConnection(self, transport):
-        self.runner.log("startConnection")
         self.transport = transport
         self.transport.user = self.user
         self.transport.suite = self
@@ -888,8 +899,16 @@ class TestSSHSuite(TestSuite):
             'separator': separator
         }
 
+        d, jobid = self.dispatchCommand("cwd", self.getWorkDirInternal())
+        d.addCallbacks(self.remoteHelperInitialized, self.remoteHelperFailed)
+
+    def remoteHelperInitialized(self, result):
         d, self.setupDeferred = self.setupDeferred, None
         d.callback(True)
+
+    def remoteHelperFailed(self, failure):
+        d, self.setupDeferred = self.setupDeferred, None
+        d.errback(failure)
 
     def processRemoteJobDone(self, jobid, retcode=0):
         if jobid not in self.pendingJobs:
@@ -967,7 +986,7 @@ class TestSSHSuite(TestSuite):
             return
 
         proc = self.pendingProcs[jobid]
-        proc.triggerHook(hookid, line)
+        proc.triggerHookCallback(hookid, line)
 
 
 
@@ -975,7 +994,7 @@ class TestSSHSuite(TestSuite):
 
 
 
-    # IBox commands
+    # IControlledHost commands
     def joinPath(self, *paths):
         sep = self.remoteInfo['separator']
         return sep.join(paths)
@@ -1017,8 +1036,17 @@ class TestSSHSuite(TestSuite):
         self.pendingProcs[jobid] = proc
         return proc, d
 
-    def getHostname(self):
+    def getHostName(self):
         return self.remoteInfo['hostname']
+
+    def getTempDir(self, desc):
+        result = self.joinPath(self.getWorkDirInternal(),
+                               "%s-%04d" % (desc, self.temp_dir_counter))
+        self.temp_dir_counter += 1
+        return result
+
+
+
 
 
     # called back from the RemoteProcess
@@ -1067,7 +1095,10 @@ class TestSSHSuite(TestSuite):
     def uploadFileData(self, data, destPath):
         return self.transport.uploadFileData(data, destPath)
 
-    def getWorkDir(self):
+    def downloadFile(self, srcPath, destPath):
+        return self.transport.downloadFile(srcPath, destPath)
+
+    def getWorkDirInternal(self):
         if self.workdir[0] == '/':
             return self.workdir
         elif self.workdir[0] == '~':
@@ -1075,11 +1106,6 @@ class TestSSHSuite(TestSuite):
         else:
             # try relative directory
             return self.joinPath(self.homeDirectory, self.workdir)
-
-    def getTempDir(self, desc):
-        result = self.joinPath(self.getWorkDir(), "%s-%04d" % (desc, self.temp_dir_counter))
-        self.temp_dir_counter += 1
-        return result
 
     def getTempIP4Port(self):
         result = self.temp_ipv4_port

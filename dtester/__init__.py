@@ -17,8 +17,10 @@ __all__ = ["events", "exceptions", "net", "processes", "reporter", "runner",
 # the self-test suite to run from setuptools
 import dtests
 test_def = {
-    'stream_reporter': {'class': dtests.StreamReporterTest},
-    'tap_reporter': {'class': dtests.TapReporterTest},
+    'stream_reporter':    {'class': dtests.StreamReporterTest},
+    'tap_reporter':       {'class': dtests.TapReporterTest},
     'missing_dependency': {'class': dtests.MissingNeed},
-    'timeout': {'class': dtests.TimeoutTest},
+    'timeout':            {'class': dtests.TimeoutTest},
+    'var_need':           {'class': dtests.VariableNeeds},
+    'resource':           {'class': dtests.ResourceTest},
 }

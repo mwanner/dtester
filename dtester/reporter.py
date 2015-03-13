@@ -14,14 +14,15 @@ from twisted.internet import defer
 from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
 from dtester.exceptions import TestFailure, TimeoutError, TestSkipped, \
-    DefinitionError, FailureCollection
+    DefinitionError, FailureCollection, UnableToRun
 
 
 class Reporter:
     """ An abstract base class for all reporters.
     """
 
-    def __init__(self, outs=sys.stdout, errs=sys.stderr, showTimingInfo=True):
+    def __init__(self, outs=sys.stdout, errs=sys.stderr,
+                 showTimingInfo=True, showLineNumbers=True):
         """ @param outs: output stream for progress and result information
             @type  outs: file handle
             @param errs: error stream for reporting errors
@@ -30,6 +31,7 @@ class Reporter:
         self.outs = outs
         self.errs = errs
         self.showTimingInfo = showTimingInfo
+        self.showLineNumbers = showLineNumbers
 
     def getDescription(self, suite, attname=None):
         """ @return: the test's description or that of one of its methods,
@@ -47,12 +49,15 @@ class Reporter:
             fullAttname = "description"
         if not hasattr(suite, fullAttname):
             if attname:
-                return "(no description for %s)" % attname
+                return "(no description for %s of %s)" % (attname, repr(suite))
             else:
                 # Test itself has no further description
                 return None
         attr = getattr(suite, fullAttname)
-        if isinstance(attr, str):
+        if attr is None:
+            # intentionally no description given
+            return ""
+        elif isinstance(attr, str):
             return attr
         else:
             try:
@@ -82,7 +87,7 @@ class Reporter:
         try:
             row = tbo.pop()
 
-            # the last row of the traceback might well one of the standard
+            # the last row of the traceback might well be one of the standard
             # check methods in the BaseTest class. We don't want to display
             # that.
             while row[2] in ('assertEqual', 'assertNotEqual', 'syncCall'):
@@ -112,14 +117,19 @@ class Reporter:
 
         if isinstance(inner_err, FailureCollection):
             msg = "=" * 20 + "\n"
-            msg += "%s failed: %s (%d errors)\n" % (tname, repr(inner_err),
-                                                    len(inner_err.getErrors()))
+            msg += "%s %s failed: collected %d errors:\n" % (
+                type, tname, len(inner_err.getErrors()))
             msg += ("-" * 20 + "\n")
             details = []
             for err in inner_err.getErrors():
                 if isinstance(err, TestFailure):
+                    desc = repr(err)
                     detail = err.getDetails()
-                    details.append(detail)
+                    if detail is None:
+                        details.append(desc)
+                    else:
+                        details.append("Error: %s\nDetails:\n%s" % (
+                            desc, detail))
                 elif isinstance(err, TimeoutError):
                     details.append("timeout error")
                 else:
@@ -143,9 +153,13 @@ class Reporter:
             self.errs.write(msg)
         elif isinstance(inner_err, TestSkipped):
             return
+        elif isinstance(inner_err, UnableToRun):
+            msg = "=" * 20 + "\n"
+            msg += "%s %s: unable to run: %s" % (
+                type, tname, inner_err.message)
         else:
             msg = "=" * 20 + "\n"
-            msg += "Error in %s %s:\n" % (type, tname,)
+            msg += "Error in %s %s:\n" % (type, tname)
             msg += "-" * 20 + "\n"
             msg += repr(inner_err) + "\n"
             msg += "-" * 20 + "\n"
@@ -222,18 +236,22 @@ class StreamReporter(Reporter):
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
+        if not desc and result == "OK":
+            return
 
         msg = str(tname)
         if result in ("OK", "SKIPPED", "UX-OK"):
             if desc:
-                msg += ": %s\n" % desc
-            else:
-                msg += "\n"
+                msg += ": %s" % desc
+            msg += "\n"
         else:
             (errmsg, filename, lineno) = self.getShortError(error)
 
-            if filename and lineno:
-                msg += " - %s in %s:%d\n" % (errmsg, filename, lineno)
+            if filename and lineno and result != "UX-SKIP":
+                if self.showLineNumbers:
+                    msg += " - %s in %s:%d\n" % (errmsg, filename, lineno)
+                else:
+                    msg += " - %s in %s\n" % (errmsg, filename)
             else:
                 msg += " - %s\n" % (errmsg,)
 
@@ -253,6 +271,8 @@ class StreamReporter(Reporter):
 
     def startSetUpSuite(self, tname, suite):
         desc = self.getDescription(suite, "setUp")
+        if not desc:
+            return
         self.outs.write("        %s: %s\n" % (tname, desc))
         self.outs.flush()
 
@@ -261,6 +281,8 @@ class StreamReporter(Reporter):
 
     def startTearDownSuite(self, tname, suite):
         desc = self.getDescription(suite, "tearDown")
+        if not desc:
+            return
         self.outs.write("        %s: %s\n" % (tname, desc))
         self.outs.flush()
 
@@ -281,7 +303,7 @@ class TapReporter(Reporter):
     """ A (hopefully) TAP compatible stream reporter, useful for automated
         processing of test results.
 
-        @note: compatibility with other TAP tools is mostly untested.
+        @note: compatibility with other TAP tools is untested.
     """
 
     def begin(self, tdefs):
@@ -307,6 +329,9 @@ class TapReporter(Reporter):
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
+        if not desc and result == "OK":
+            return
+
         if result == "OK":
             msg = "ok %d     - %s: %s\n" % (
                 self.numberMapping[tname], tname, desc)
@@ -316,19 +341,27 @@ class TapReporter(Reporter):
         else:
             (errmsg, filename, lineno) = self.getShortError(error)
 
-            if filename and lineno:
-                msg = "not ok %d - %s (%s) # %s in %s:%d\n" % (
-                    self.numberMapping[tname], tname, result,
-                    errmsg, filename, lineno)
+            if result == "UX-SKIP":
+                comment = errmsg
             else:
-                msg = "not ok %d - %s (%s) # %s\n" % (
-                    self.numberMapping[tname], tname, result, errmsg)
+                if filename and lineno:
+                    if self.showLineNumbers:
+                        comment = "%s in %s:%d" % (errmsg, filename, lineno)
+                    else:
+                        comment = "%s in %s" % (errmsg, filename)
+                else:
+                    comment = errmsg
+
+            msg = "not ok %d - %s (%s) # %s\n" % (
+                self.numberMapping[tname], tname, result, comment)
 
         self.outs.write(msg)
         self.outs.flush()
 
     def startSetUpSuite(self, tname, suite):
         desc = self.getDescription(suite, "setUp")
+        if not desc:
+            return
         self.outs.write("# %s: %s\n" % (tname, desc))
         self.outs.flush()
 
@@ -337,6 +370,8 @@ class TapReporter(Reporter):
 
     def startTearDownSuite(self, tname, suite):
         desc = self.getDescription(suite, "tearDown")
+        if not desc:
+            return
         self.outs.write("# %s: %s\n" % (tname, desc))
         self.outs.flush()
 
@@ -370,8 +405,8 @@ class CursesReporter(Reporter):
         tearDown information only as vanishing status lines.
     """
 
-    def __init__(self, outs=sys.stdout, errs=sys.stderr, showTimingInfo=True):
-        Reporter.__init__(self, outs, errs, showTimingInfo)
+    def __init__(self, outs=sys.stdout, errs=sys.stderr, *args, **kwargs):
+        Reporter.__init__(self, outs, errs, *args, **kwargs)
         self.count_result_lines = 0
         self.count_status_lines = 0
         self.count_log_lines = 0
@@ -456,6 +491,9 @@ class CursesReporter(Reporter):
         self.outs.write(out)
         self.outs.flush()
 
+    def hasStatusLine(self, tname):
+        return tname in self.lines
+
     def dropStatusLine(self, tname):
         out = ""
 
@@ -494,6 +532,8 @@ class CursesReporter(Reporter):
 
     def startTest(self, tname, test):
         desc = self.getDescription(test)
+        if not desc:
+            return
         msg = self.renderResultLine("running", tname, desc)
         self.addResultLine(tname, msg)
 
@@ -529,7 +569,7 @@ class CursesReporter(Reporter):
         color = ""
         if result == "OK":
             color = self.COLOR_GREEN
-        elif result in ("FAILED", "TIMEOUT"):
+        elif result in ("FAILED", "TIMEOUT", "UX-SKIP"):
             color = self.COLOR_RED
         elif result in ("SKIPPED", "XFAIL"):
             color = self.COLOR_CYAN
@@ -543,10 +583,13 @@ class CursesReporter(Reporter):
         rest = columns - 3 - 8 - len(tname)
 
         right = ""
-        if filename and lineno:
+        if filename:
             if len(filename) > 20:
                 filename = ".." + filename[-17:]
-            add = " %s:%d" % (filename, lineno)
+            if self.showLineNumbers and lineno:
+                add = " %s:%d" % (filename, lineno)
+            else:
+                add = " %s" % (filename,)
             rest -= len(add)
             right = add
 
@@ -571,6 +614,8 @@ class CursesReporter(Reporter):
 
     def stopTest(self, tname, test, result, error):
         desc = self.getDescription(test)
+        if not desc and result == "OK":
+            return
 
         if result in ("OK", "SKIPPED", "UX-OK"):
             msg = self.renderResultLine(result, tname, desc)
@@ -583,22 +628,28 @@ class CursesReporter(Reporter):
 
     def startSetUpSuite(self, tname, suite):
         desc = self.getDescription(suite, "setUp")
+        if not desc:
+            return
         msg = "%s: %s" % (tname, desc)
         self.addStatusLine("setup__" + tname, msg)
         self.outs.flush()
 
     def stopSetUpSuite(self, tname, suite):
-        self.dropStatusLine("setup__" + tname)
+        if self.hasStatusLine("setup__" + tname):
+            self.dropStatusLine("setup__" + tname)
 
     def startTearDownSuite(self, tname, suite):
         desc = self.getDescription(suite, "tearDown")
+        if not desc:
+            return
         # self.dropStatusLine(tname)
         msg = "%s: %s" % (tname, desc)
         self.addStatusLine("teardown__" + tname, msg)
         self.outs.flush()
 
     def stopTearDownSuite(self, tname, suite):
-        self.dropStatusLine("teardown__" + tname)
+        if self.hasStatusLine("teardown__" + tname):
+            self.dropStatusLine("teardown__" + tname)
 
     def suiteSetUpFailure(self, tname, error):
         pass

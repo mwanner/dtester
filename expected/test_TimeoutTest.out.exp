@@ -1,11 +1,10 @@
-        endless_teardown: nothing to setup
         test_deferred_timeout: test started
         endless_setup: endless setUp
 TIMEOUT test_deferred_timeout - test run timed out
         suite endless_setup failed setting up
         endless_teardown_user: test started
 OK      endless_teardown_user: one dependency test
-SKIPPED endless_setup_user
+UX-SKIP endless_setup_user - failed: endless_setup
         endless_teardown: endless tear down
         suite endless_teardown: failed tearing down
 Run 3 tests: 1 succeeded 2 failed.

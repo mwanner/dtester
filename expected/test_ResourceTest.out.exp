@@ -1,0 +1,17 @@
+        resource: nothing to set up
+LOG     resource acquired
+        u1: test started
+OK      u1: one dependency test
+LOG     resource released
+LOG     resource acquired
+        suite: nothing to set up
+        u2: test started
+OK      u2: one dependency test
+        suite: nothing to tear down
+LOG     resource released
+LOG     resource acquired
+        u3: test started
+OK      u3: one dependency test
+LOG     resource released
+        resource: nothing to tear down
+3 tests successfully processed.
