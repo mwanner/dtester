@@ -259,7 +259,10 @@ class RemoteHelperChannel(channel.SSHChannel, CommandProcessor):
     # called from the suite
     def custom_request(self, cmd, jobid, *args):
         msg = "%s %d" % (cmd, jobid)
+        while len(args) > 0 and args[-1] is None:
+            args = args[:-1]
         for arg in args:
+            assert arg is not None
             msg += " %s" % repr(arg)
         self.write(msg + "\n")
 
@@ -1015,6 +1018,10 @@ class TestSSHSuite(TestSuite):
 
     def recursiveCopy(self, sourcePath, destPath, ignorePattern=None):
         d, jobid = self.dispatchCommand("copy", sourcePath, destPath, ignorePattern)
+        return d
+
+    def appendToFile(self, path, data):
+        d, jobid = self.dispatchCommand("append", path, data)
         return d
 
     def makeDirectory(self, path):

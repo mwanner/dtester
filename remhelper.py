@@ -215,6 +215,12 @@ class readCmdPipeDispatcher(readPipeDispatcher, CommandProcessor):
                 self.parent.reportCmdError('remove expects exactly two arguments')
             else:
                 self.parent.startRemove(*args)
+        elif cmd == 'append':
+            # append to file
+            if len(args) != 3:
+                self.parent.reportCmdError('append expects exactly three arguments')
+            else:
+                self.parent.startAppend(*args)
         elif cmd == 'makedirs':
              # makedirs
             if len(args) != 2:
@@ -496,17 +502,32 @@ class Helper:
             self.reportJobDone(jobid)
 
     def startCopy(self, jobid, src, dest, ignore=None):
+        if not os.path.exists(src):
+            self.reportJobFailed(jobid, "No such file or directory: %s" % src)
+            return
         try:
             if ignore:
                 ign_pattern = ignore.split(';')
                 shutil.copytree(src, dest,
                                 ignore=shutil.ignore_patterns(*ign_pattern))
             else:
-                shutil.copytree(src, dest)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dest)
+                elif os.path.isfile(src):
+                    shutil.copy(src, dest)
+                else:
+                    self.reportJobFailed(jobid, "Unknown thing to copy: %s" % src)
+                    return
         except exceptions.OSError, e:
             self.reportJobFailed(jobid, e.strerror)
         else:
             self.reportJobDone(jobid)
+
+    def startAppend(self, jobid, path, data):
+        f = open(path, 'a')
+        f.write(data)
+        f.close()
+        self.reportJobDone(jobid)
 
     def startMakedirs(self, jobid, path):
         os.makedirs(path)

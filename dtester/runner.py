@@ -10,7 +10,7 @@ scheduling of tests and test suites, running them in parallel based on an
 asynchronous event loop using twisted.
 """
 
-import os, copy, time, shlex
+import os, copy, time, shlex, shutil
 
 from zope.interface import implements
 
@@ -107,13 +107,24 @@ class Localhost(TestSuite):
             pass
 
     def recursiveCopy(self, src, dest, ignore=None):
-        import shutil
+        if not os.path.exists(src):
+            raise IOError(2, "No such file or directory: %s" % src)
         if ignore:
             ign_pattern = ignore.split(';')
             shutil.copytree(src, dest,
                             ignore=shutil.ignore_patterns(*ign_pattern))
         else:
-            shutil.copytree(src, dest)
+            if os.path.isdir(src):
+                shutil.copytree(src, dest)
+            elif os.path.isfile(src):
+                shutil.copy(src, dest)
+            else:
+                raise Exception("unknown thing to copy")
+
+    def appendToFile(self, path, data):
+        f = open(path, 'a')
+        f.write(data)
+        f.close()
 
     def getTempIP4Port(self):
         result = self.temp_ipv4_port

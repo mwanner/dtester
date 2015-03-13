@@ -34,6 +34,10 @@ class IControlledHost(Interface):
         """ Recursively copy a directory.
         """
 
+    def appendToFile(path, data):
+        """ Append the given string to the file at path.
+        """
+
     def makeDirectory(path):
         """ Create a directory on the controlled host. Path should be an
             absolute path name.
