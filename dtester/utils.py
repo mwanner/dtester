@@ -13,9 +13,18 @@ def parseArgs(rest, errLogFunc):
     in_double_string = False
     in_number = False
     in_backslash = False
+    in_bl_hex_char = False
+    hex_char = ""
     token = ""
     args = []
     for char in rest:
+        if in_bl_hex_char:
+            assert char in "0123456789" or char in "abcdef"
+            hex_char += char
+            if len(hex_char) == 2:
+                token += chr(hex_char)
+                hex_char = ""
+                in_bl_hex_char = False
         if char == "'" and not in_double_string and not in_number:
             if not in_single_string:
                 in_single_string = True
@@ -55,6 +64,8 @@ def parseArgs(rest, errLogFunc):
                     token += "\r"
                 elif char == "t":
                     token += "\t"
+                elif char == "x":
+                    in_hex_char = True
                 elif char == "\\":
                     token += "\\"
                 else:
