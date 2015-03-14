@@ -1,7 +1,6 @@
-Correct recursiveRemove() (locally as well as in remhelper.py)
+Correctly implement lineBasedOutput for ssh.
 
-Get rid of setLogfiles(), instead collect all events and send them to the
-initiator.
+Maybe switch default of lineBasedOutput to True.
 
 Allow execution of a single test out of the list of test definitions.
 
@@ -15,3 +14,4 @@ the main issue probably is that suites get started even if absolutely
 unneeded, just to make sure no test gets skipped because its requirements
 cannot be fulfilled.
 
+The main routine returns with exit code 0 even if tests failed.

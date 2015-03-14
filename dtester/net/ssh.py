@@ -9,7 +9,7 @@ Distributed under the Boost Software License, Version 1.0. (See
 accompanying file LICENSE).
 """
 
-import os, struct, shlex
+import os, struct, shlex, exceptions
 
 from zope.interface import implements
 
@@ -19,6 +19,7 @@ from twisted.conch.ssh import common, channel, connection, filetransfer, \
                               userauth, session, transport, keys
 from twisted.conch.client import default, direct, options
 
+from dtester import utils
 from dtester.test import TestSuite
 from dtester.interfaces import IControlledHost
 from dtester.events import EventSource, EventMatcher, \
@@ -99,75 +100,7 @@ class CommandProcessor:
             cmd = line
             rest = ""
 
-        # parse arguments
-        in_single_string = False
-        in_double_string = False
-        in_number = False
-        in_backslash = False
-        token = ""
-        args = []
-        for char in rest:
-            if char == "'" and not in_double_string and not in_number:
-                if not in_single_string:
-                    in_single_string = True
-                elif in_backslash:
-                    token += "'"
-                    in_backslash = False
-                else:
-                    args.append(token)
-                    in_single_string = False
-                    token = ""
-            elif char == '"' and not in_single_string and not in_number:
-                if not in_double_string:
-                    in_double_string = True
-                elif in_backslash:
-                    token += '"'
-                    in_backslash = False
-                else:
-                    args.append(token)
-                    in_double_string = False
-                    token = ""
-            elif char == "\\" and not in_backslash:
-                if in_single_string or in_double_string:
-                    in_backslash = True
-                else:
-                    self.logParserError("WARNING: invalid position for backslash, ignored!")
-            elif char in "0123456789" and not in_backslash:
-                if in_number or in_single_string or in_double_string:
-                    token += char
-                else:
-                    token += char
-                    in_number = True
-            else:
-                if in_backslash:
-                    if char == "n":
-                        token += "\n"
-                    elif char == "r":
-                        token += "\r"
-                    elif char == "t":
-                        token += "\t"
-                    elif char == "\\":
-                        token += "\\"
-                    else:
-                        self.logParserError("WARNING: unknown escape character: '%s'" % repr(char))
-                    in_backslash = False
-                elif in_single_string or in_double_string:
-                    token += char
-                else:
-                    if char in " \n\r\t":
-                        if in_number:
-                            args.append(int(token))
-                        token = ""
-                        in_number = False
-                    else:
-                        self.logParserError("invalid char outside of token: '%s' in: %s" % (repr(char), line))
-
-        if in_number:
-            args.append(int(token))
-        elif in_single_string or in_double_string:
-            self.logParserError("unterminated string at end of line: %s" % repr(token))
-            args.append(token)
-
+        args = utils.parseArgs(rest, self.logParserError)
         self.processCommand(cmd, args)
 
     def processCommand(self, cmd, args):
@@ -523,7 +456,7 @@ class SimpleSSHTransport(transport.SSHClientTransport):
     def getSftpChannel(self):
         """ Gets or creates an SFTP channel.
         """
-        self.factory.runner.log("getSftpChannel")
+        # self.factory.runner.log("getSftpChannel")
         if self.sftpClient:
             return self.sftpClient
         else:
@@ -547,8 +480,8 @@ class SimpleSSHTransport(transport.SSHClientTransport):
 
 
     def uploadFile(self, srcPath, destPath):
-        self.factory.runner.log("uploadFile: %s => %s" % (
-            repr(srcPath), repr(destPath)))
+        #self.factory.runner.log("uploadFile: %s => %s" % (
+        #    repr(srcPath), repr(destPath)))
         fd = open(srcPath, 'r')
         d = defer.maybeDeferred(self.getSftpChannel)
         d.addCallback(self.openFileToUpload, destPath)
@@ -557,13 +490,12 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         return d
 
     def downloadFile(self, srcPath, destPath):
-        self.factory.runner.log("downloadFile: %s => %s" % (
-            repr(srcPath), repr(destPath)))
+        #self.factory.runner.log("downloadFile: %s => %s" % (
+        #    repr(srcPath), repr(destPath)))
         fd = open(destPath, 'w')
         d = defer.maybeDeferred(self.getSftpChannel)
         d.addCallback(self.openFileToDownload, srcPath)
         d.addCallback(self.triggerDataDownload, fd)
-        d.addCallback(self.closeBothFiles, fd)
         return d
 
     def triggerDataUpload(self, remoteFd, localFd):
@@ -573,7 +505,7 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         return self.downloadFileChunk(remoteFd, localFd, 0)
 
     def uploadFileChunk(self, ignoredResult, remoteFd, localFd, offset):
-        self.factory.runner.log("uploadFileChunk (offset: %d, result: %s)" % (offset, repr(ignoredResult)))
+        #self.factory.runner.log("uploadFileChunk (offset: %d, result: %s)" % (offset, repr(ignoredResult)))
 
         # synchronous read from local file
         CHUNK_SIZE = 65536
@@ -584,44 +516,39 @@ class SimpleSSHTransport(transport.SSHClientTransport):
             d.addCallback(self.uploadFileChunk, remoteFd, localFd, offset + len(data))
             return d
         else:
-            self.factory.runner.log("wrote %d bytes in total." % (offset + len(data)))
+            #self.factory.runner.log("wrote %d bytes in total." % (offset + len(data)))
             return remoteFd
 
     def downloadFileChunk(self, remoteFd, localFd, offset=0):
-        self.factory.runner.log("downloadFileChunk (offset: %d, result: %s)" % (offset, repr(ignoredResult)))
+        #self.factory.runner.log("downloadFileChunk (offset: %d)" % offset)
 
         # synchronous read from local file
         CHUNK_SIZE = 65536
         d = remoteFd.readChunk(offset, CHUNK_SIZE)
-        d.addCallback(writeDownloadedData, remoteFd, localFd, offset)
+        d.addCallback(self.writeDownloadedData, remoteFd, localFd, offset)
+        d.addErrback(self.handleEOF, localFd)
         return d
-
-        data = localFd.read(CHUNK_SIZE)
-
-        d = remoteFd.writeChunk(offset, data)
-        if len(data) == CHUNK_SIZE:
-            d.addCallback(self.uploadFileChunk, remoteFd, localFd, offset + len(data))
-            return d
-        else:
-            self.factory.runner.log("wrote %d bytes in total." % (offset + len(data)))
-            return remoteFd
 
     def writeDownloadedData(self, data, remoteFd, localFd, offset):
         if len(data) > 0:
             localFd.write(data)
             return self.downloadFileChunk(remoteFd, localFd, offset + len(data))
         else:
-            self.factory.runner.log("wrote %d bytes in total." % offset)
             return remoteFd
 
+    def handleEOF(self, failure, localFd):
+        failure.trap(exceptions.EOFError)
+        #self.factory.runner.log("download completed")
+        localFd.close()
+
     def openFileToUpload(self, client, path):
-        self.factory.runner.log("openFileToUpload")
+        # self.factory.runner.log("openFileToUpload")
         flags = filetransfer.FXF_WRITE | filetransfer.FXF_CREAT | \
                 filetransfer.FXF_TRUNC
         return client.openFile(path, flags, {})
 
     def openFileToDownload(self, client, path):
-        self.factory.runner.log("openFileToDownload")
+        # self.factory.runner.log("openFileToDownload")
         flags = filetransfer.FXF_READ
         return client.openFile(path, flags, {})
 
@@ -629,30 +556,6 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         localFd.close()
         d = remoteFd.close()
         return d
-        unused = """
-
-
-
-
-
-    def uploadFileData(self, data, destPath):
-        d = self.getSftpChannel()
-        d.addCallback(self.openFileToUpload, destPath)
-        d.addCallback(self.writeFileToUpload, data)
-        return d
-
-    def writeFileToUpload(self, fileHandle, data):
-        self.factory.runner.log("writeFileToUpload")
-        d = fileHandle.writeChunk(0, data)
-        d.addCallback(lambda ignored: fileHandle.close())
-        def _eb(failure):
-            self.factory.runner.log("failure: %s" % failure)
-        d.addErrback(_eb)
-        return d
-
-        """
-
-
 
 
     def startRemoteHelper(self, path):
@@ -692,9 +595,10 @@ class SSHClientFactory(protocol.ClientFactory):
 
 class RemoteProcess(EventSource):
 
-    def __init__(self, parent, td, jobid):
+    def __init__(self, parent, name, td, jobid):
         EventSource.__init__(self)
         self.parent = parent
+        self.name = name
         self.terminationDeferred = td
         self.jobid = jobid
         self.pid = None
@@ -702,9 +606,6 @@ class RemoteProcess(EventSource):
 
     def addEnvVar(self, name, value):
         self.parent.addProcessEnv(self.jobid, name, value)
-
-    def setLogfiles(self, outlog, errlog):
-        self.parent.setProcessLogfiles(self.jobid, outlog, errlog)
 
     def start(self, use_pty=False):
         self.parent.startProcess(self.jobid, use_pty)
@@ -784,6 +685,7 @@ class TestSSHSuite(TestSuite):
 
         self.pendingJobs = {}
         self.pendingProcs = {}
+        self.completedProcs = {} # only holds a jobid -> name map
 
         # assign temporary ports starting from 32768
         # FIXME: should be configurable!
@@ -876,8 +778,6 @@ class TestSSHSuite(TestSuite):
                 d.errback(Exception("password required for: %s" % (repr(passwordErrors),)))
             else:
                 d.errback(Exception("eeeeeeeeeeeee"))
-        elif not self.tearingDown:
-            raise Exception("Logic ERROR: connection lost during operation!!!")
         elif self.tearDownDeferred is not None:
             self.tearDownDeferred.callback(True)
         else:
@@ -887,14 +787,51 @@ class TestSSHSuite(TestSuite):
             pass
 
     def tearDown(self):
+        d, jobid = self.dispatchCommand("tear_down")
+        d.addCallback(self.helperTornDown)
+        return d
+
+    def helperTornDown(self, result):
+        tmpDir = self.runner.getTmpDir()
+        tmpPath = os.path.join(tmpDir, self.test_name + "-event.log")
+
+        d = self.transport.downloadFile(self.joinPath(self.absWorkdir, "event.log"),
+                                        tmpPath + ".raw")
+        d.addCallback(self.gotEventLog, tmpPath)
+        d.addCallback(self.removeRemoteWorkDir)
+        d.addCallback(self.tearDownConnection)
+        return d
+
+    def gotEventLog(self, result, tmpPath):
+        # Decode event log... a bit... dirty stuff!
+        outfd = open(tmpPath, 'w')
+        for line in open(tmpPath + ".raw",'r'):
+            t, jobid, channel, data = line.split(':', 3)
+            jobid = int(jobid)
+            if jobid == 0:
+                jobName = self.test_name
+            elif jobid in self.completedProcs:
+                jobName = self.completedProcs[jobid]
+            elif jobid in self.pendingProcs:
+                jobName = self.pendingProcs[jobid].name
+                self.runner.log("Warning: proc still pending: %s" % jobName)
+            else:
+                self.runner.log("No proc name for %d" % jobid)
+                jobName = "(unknown)"
+            outfd.write("%s:%s:%s:%s" % (
+                t, jobName, channel, data))
+        outfd.close()
+        os.unlink(tmpPath + ".raw")
+
+        self.runner.registerHostEventLog(self.test_name, tmpPath)
+
+    def removeRemoteWorkDir(self, result):
+        # If we are still connected, command the helper to remove its
+        # working directory. If the connection closes already when failing
+        # prior to tearDown, we cannot do much. 
         if self.transport.connected:
-            d = self.recursiveRemove(self.absWorkdir)
-            d.addCallbacks(self.tearDownConnection)
-            return d
+            return self.recursiveRemove(self.absWorkdir)
         else:
-            # This may happen if the connection closes already when failing
-            # to start the remote helper.py during setUp. Nothing else to
-            # tear down in that case.
             return None
 
     def tearDownConnection(self, result):
@@ -936,14 +873,8 @@ class TestSSHSuite(TestSuite):
             'separator': separator
         }
 
-        # FIXME: maybe drop a pre-existing directory?
-        d = self.makeDirectory(self.absWorkdir)
-        d.addCallbacks(self.workDirCreated, self.remoteHelperFailed)
-
-    def workDirCreated(self, result):
-        d, jobid = self.dispatchCommand("cwd", self.absWorkdir)
-        d.addCallback(self.remoteHelperInitialized)
-        return d
+        d, jobid = self.dispatchCommand("set_work_dir", self.absWorkdir)
+        d.addCallbacks(self.remoteHelperInitialized, self.remoteHelperFailed)
 
     def remoteHelperInitialized(self, result):
         d, self.setupDeferred = self.setupDeferred, None
@@ -964,6 +895,7 @@ class TestSSHSuite(TestSuite):
         if jobid in self.pendingProcs:
             #self.runner.log("remote process terminated (success) (%s)" % repr(job_args))
             proc = self.pendingProcs[jobid]
+            self.completedProcs[jobid] = proc.name
             del self.pendingProcs[jobid]
             d.callback(retcode)
         else:
@@ -981,6 +913,7 @@ class TestSSHSuite(TestSuite):
         if jobid in self.pendingProcs:
             #self.runner.log("remote process terminated (failure): %s (%s)" % (args[0], repr(job_args)))
             proc = self.pendingProcs[jobid]
+            self.completedProcs[jobid] = proc.name
             del self.pendingProcs[jobid]
             assert len(args) == 1
             d.errback(Exception(args[0]))
@@ -1068,7 +1001,9 @@ class TestSSHSuite(TestSuite):
         d, jobid = self.dispatchCommand("makedirs", path)
         return d
 
-    def prepareProcess(self, cmdline, cwd=None):
+    def prepareProcess(self, name, cmdline, cwd=None, lineBasedOutput=False):
+        # FIXME: respect lineBasedOutput!
+
         if isinstance(cmdline, str):
             cmdline = shlex.split(cmdline)
 
@@ -1079,7 +1014,7 @@ class TestSSHSuite(TestSuite):
         if cwd:
             self.remote_helper.custom_request("proc_cwd", jobid, cwd)
 
-        proc = RemoteProcess(self, d, jobid)
+        proc = RemoteProcess(self, name, d, jobid)
         self.pendingProcs[jobid] = proc
         return proc, d
 
@@ -1105,9 +1040,6 @@ class TestSSHSuite(TestSuite):
 
     def addProcessEnv(self, jobid, name, value):
         self.remote_helper.custom_request("proc_env", jobid, name, value)
-
-    def setProcessLogfiles(self, jobid, outlog, errlog):
-        self.remote_helper.custom_request("proc_log", jobid, outlog, errlog)
 
     def addProcessHook(self, jobid, stream, pattern):
         hookid = self.hook_counter

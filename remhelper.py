@@ -97,13 +97,12 @@ class CommandProcessor:
 
 class readPipeDispatcher(asyncore.file_dispatcher):
 
-    def __init__(self, parent, fd, name, logfile=None, map=None):
+    def __init__(self, parent, fd, name, map=None):
         asyncore.file_dispatcher.__init__(self, fd, map)
         self.parent = parent
         self.name = name
         self.closed = False
         self.rest = ""
-        self.logfile = logfile
 
     def writable(self):
         return False
@@ -119,10 +118,6 @@ class readPipeDispatcher(asyncore.file_dispatcher):
             # reader open even afer an OSError?
             self.handle_close()
             return
-
-        if self.logfile:
-            self.logfile.write(data)
-            self.logfile.flush()
 
         try:
             line_based = False
@@ -146,10 +141,6 @@ class readPipeDispatcher(asyncore.file_dispatcher):
     def handle_close(self):
         self.close()
         self.closed = True
-
-        if self.logfile:
-            self.logfile.close()
-            self.logfile = None
 
         self.parent.close_pipe(self.name)
 
@@ -184,7 +175,7 @@ class writePipeDispatcher(asyncore.file_dispatcher):
 class readCmdPipeDispatcher(readPipeDispatcher, CommandProcessor):
 
     def __init__(self, parent, fd, name, map=None):
-        readPipeDispatcher.__init__(self, parent, fd, name, map)
+        readPipeDispatcher.__init__(self, parent, fd, name, map=map)
         self.buffer = ""
 
     def handle_read(self):
@@ -204,11 +195,16 @@ class readCmdPipeDispatcher(readPipeDispatcher, CommandProcessor):
         self.parent.reportCmdError("parser error: %s" % msg)
 
     def processCommand(self, cmd, args):
-        if cmd == 'cwd':
+        if cmd == 'set_work_dir':
             if len(args) != 2:
-                self.parent.reportCmdError('cwd expects exactly two arguments')
+                self.parent.reportCmdError('work_dir expects exactly two arguments')
             else:
-                self.parent.changeWorkingDirectory(*args)
+                self.parent.setWorkDir(*args)
+        elif cmd == 'tear_down':
+            if len(args) != 1:
+                self.parent.reportCmdError('tear_down expects exactly one argument')
+            else:
+                self.parent.tearDown(*args)
         elif cmd == 'remove':
             # recursive remove
             if len(args) != 2:
@@ -245,11 +241,6 @@ class readCmdPipeDispatcher(readPipeDispatcher, CommandProcessor):
                 self.parent.reportCmdError('cmd_cwd expects exactly two arguments')
             else:
                 self.parent.setProcessCwd(*args)
-        elif cmd == 'proc_log':
-            if len(args) != 3:
-                self.parent.reportCmdError('proc_log expects exactly three arguments')
-            else:
-                self.parent.setProcessLogging(*args)
         elif cmd == 'proc_env':
             if len(args) != 3:
                 self.parent.reportCmdError('proc_env expects exactly three arguments')
@@ -317,26 +308,10 @@ class ProcessMonitor:
         self.hooks = {}
         self.hook_max_id = 1
 
-        self.out_logfile = None
-        self.err_logfile = None
-
         self.env = copy.copy(os.environ)
 
     def setWorkingDirectory(self, cwd):
         self.cwd = cwd
-
-    def setLogfiles(self, outlog, errlog):
-        if outlog and len(outlog) > 0:
-            assert not self.out_logfile
-            self.out_logfile = open(outlog, "w")
-
-        if errlog and len(errlog) > 0:
-            assert not self.err_logfile
-            if errlog == outlog:
-                fd = os.dup(self.out_logfile.fileno())
-                self.err_logfile = os.fdopen(fd, 'w', 0)
-            else:
-                self.err_logfile = open(errlog, "w")
 
     def addEnvVar(self, name, value):
         # perform substitution
@@ -349,18 +324,16 @@ class ProcessMonitor:
         self.use_pty = use_pty
         self.use_shell = use_shell
 
+        logline = "starting subprocess: %s" % " ".join(self.cmdline)
+        if self.cwd:
+            logline += " cwd: %s" % self.cwd
+
+        self.parent.evlogAppend(0, 'out', logline)
+        for k, v in self.env.iteritems():
+            self.parent.evlogAppend(0, 'out', "    env: %s = %s\n" % (k, v))
+
         if use_shell:
             self.cmdline = " ".join(self.cmdline)
-
-        fd = open("remhelper.log", "a")
-        fd.write("cmdline: %s\n" % repr(self.cmdline))
-        fd.write("cwd: %s\n" % repr(self.cwd))
-        fd.write("environment: %s\n" % repr(self.env))
-        fd.write("use_pty: %s\n" % self.use_pty)
-        fd.write("use_shell: %s\n" % self.use_shell)
-        fd.write("\n\n")
-        fd.close()
-
 
         try:
             if self.use_pty:
@@ -381,12 +354,12 @@ class ProcessMonitor:
 
         if self.use_pty:
             self.in_pipe = writePipeDispatcher(self, self.master, name="in")
-            self.out_pipe = readPipeDispatcher(self, self.master, name="out", logfile=self.out_logfile)
-            self.err_pipe = readPipeDispatcher(self, self.master, name="err", logfile=self.err_logfile)
+            self.out_pipe = readPipeDispatcher(self, self.master, name="out")
+            self.err_pipe = readPipeDispatcher(self, self.master, name="err")
         else:
-            self.out_pipe = readPipeDispatcher(self, self.proc.stdout, name="out", logfile=self.out_logfile)
             self.in_pipe = writePipeDispatcher(self, self.proc.stdin, name="in")
-            self.err_pipe = readPipeDispatcher(self, self.proc.stderr, name="err", logfile=self.err_logfile)
+            self.out_pipe = readPipeDispatcher(self, self.proc.stdout, name="out")
+            self.err_pipe = readPipeDispatcher(self, self.proc.stderr, name="err")
 
         if len(self.in_buffer) > 0:
             self.in_pipe.write(self.in_buffer)
@@ -423,6 +396,10 @@ class ProcessMonitor:
         del self.hooks[hookid]
 
     def testLine(self, stream, line):
+        # log to the main event log
+        self.parent.evlogAppend(self.jobid, stream, line)
+
+        # test against hooks
         for hookid, hook in self.hooks.iteritems():
             if hook['stream'] == stream:
                 pattern = hook['pattern']
@@ -430,6 +407,10 @@ class ProcessMonitor:
                     self.parent.hookMatched(self.jobid, hook['id'], line)
 
     def testBuffer(self, stream, data):
+        # log to the main event log
+        self.parent.evlogAppend(self.jobid, stream, data)
+
+        # test against hooks
         for hookid, hook in self.hooks.iteritems():
             if hook['stream'] == stream:
                 pattern = hook['pattern']
@@ -463,8 +444,10 @@ class Helper:
         self.cmdfd = cmdfd
         self.outfd = outfd
         self.pcmd = readCmdPipeDispatcher(self, cmdfd, name="__cmd")
+        self.evlog = None
 
         self.jobs = {}
+        self.workdir = None
 
     def run(self):
         # get system information and send as part of 'hello'
@@ -475,18 +458,48 @@ class Helper:
             asyncore.loop()
         except KeyboardInterrupt:
             self.outfd.write("\n")
-        self.cleanup()
 
     def close_pipe(self, name):
         if name == "__cmd":
             self.terminate()
 
-    def changeWorkingDirectory(self, jobid, path):
+    def evlogAppend(self, jobid, channel, log_data):
+        t = time.time()
+        self.evlog.write("%d:%d:%s:%s\n" % (t, jobid, channel, repr(log_data)))
+
+    def setWorkDir(self, jobid, path):
+        """ This is the main initialization call and should only be issued
+            once directly after 'hello'.
+        """
         try:
+            self.workdir = path
+
+            if self.evlog:
+                self.reportJobFailed(jobid, "set_work_dir has already been called.")
+                return
+
+            if os.path.exists(path):
+                self.reportJobFailed(jobid, "Given working directory %s exists, not overriding." % path)
+                return
+
+            os.makedirs(path)
             os.chdir(path)
+
+            self.evlog = open("event.log", "w")
+            self.evlogAppend(0, 'out', "started in %s\n" % self.workdir)
+
         except exceptions.OSError, e:
             self.reportJobFailed(jobid, e.strerror)
         else:
+            self.reportJobDone(jobid)
+
+    def tearDown(self, jobid):
+        """ This is almost the final command. Mainly serves in closing the
+            event log, which needs to be downloaded after tearing down.
+        """
+        try:
+            self.terminate()
+        finally:
             self.reportJobDone(jobid)
 
     def startRemove(self, jobid, path):
@@ -545,10 +558,6 @@ class Helper:
         self.jobs[jobid].setWorkingDirectory(cwd)
         # no confirmation required
 
-    def setProcessLogging(self, jobid, outlog, errlog):
-        self.jobs[jobid].setLogfiles(outlog, errlog)
-        # no confirmation required
-
     def addProcessEnvVar(self, jobid, name, value):
         self.jobs[jobid].addEnvVar(name, value)
         # no confirmation required
@@ -603,15 +612,19 @@ class Helper:
         self.outfd.write(msg + "\n")
         self.outfd.flush()
 
-
     def terminate(self):
-        # should terminate all processes and close its pipes
-        pass
+        self.evlogAppend(0, 'out', "cleaning up %s\n" % self.workdir)
+        for root, dirs, files in os.walk(self.workdir, topdown=False):
+            for name in files:
+                path = os.path.join(root, name)
+                assert path.startswith(self.workdir)
+                path = path[len(self.workdir)+1:]
+                if path == "event.log":
+                    continue
+                self.evlogAppend(0, 'out', "WARNING: undeleted file: %s\n" % path)
 
-    def cleanup(self):
-        #for fd in self.logfiles.values():
-        #    fd.close()
-        pass
+        self.evlog.close()
+        self.evlog = None
 
 
 if __name__ == "__main__":

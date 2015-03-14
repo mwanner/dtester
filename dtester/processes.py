@@ -11,7 +11,7 @@ classes
 """
 
 import os, signal
-from twisted.internet import protocol, reactor
+from twisted.internet import protocol, reactor, defer
 from dtester.events import EventSource, ProcessEndedEvent, \
                            ProcessOutStreamEvent, ProcessErrStreamEvent
 
@@ -26,11 +26,9 @@ class SimpleProcessProtocol(protocol.ProcessProtocol):
         self.transport.closeStdin()
 
     def outReceived(self, data):
-        self.eventSource.logOutputData(data)
         self.eventSource.throwEvent(ProcessOutStreamEvent, data)
 
     def errReceived(self, data):
-        self.eventSource.logErrorData(data)
         self.eventSource.throwEvent(ProcessErrStreamEvent, data)
 
     def processEnded(self, status):
@@ -50,16 +48,14 @@ class SimpleProcessLineBasedProtocol(SimpleProcessProtocol):
         self.outBuffer += data
         lines = self.outBuffer.split("\n")
         for line in lines[:-1]:
-            self.eventSource.logOutputData(line + "\n")
-            self.eventSource.throwEvent(ProcessOutStreamEvent, line)
+            self.eventSource.throwEvent(ProcessOutStreamEvent, line + "\n")
         self.outBuffer = lines[-1]
 
-    def outReceived(self, data):
+    def errReceived(self, data):
         self.errBuffer += data
         lines = self.errBuffer.split("\n")
         for line in lines[:-1]:
-            self.eventSource.logErrorData(line + "\n")
-            self.eventSource.throwEvent(ProcessErrStreamEvent, line)
+            self.eventSource.throwEvent(ProcessErrStreamEvent, line + "\n")
         self.errBuffer = lines[-1]
 
 class SimpleProcess(EventSource):
@@ -67,9 +63,11 @@ class SimpleProcess(EventSource):
         process, generating events for outputs to standard output and error
         channels as well as process termination.
     """
-    def __init__(self, proc_name, executable, cwd=os.getcwd(), args=None,
+    def __init__(self, test_name, proc_name, executable, cwd=os.getcwd(), args=None,
                  env=None, lineBasedOutput=False):
         EventSource.__init__(self)
+
+        self.test_name = test_name
 
         # FIXME: better argumnt checking required here:
         for x in args:
@@ -96,9 +94,10 @@ class SimpleProcess(EventSource):
         else:
             self.args = [executable]
 
-        self.tdeferred = None
-        self.outLogFile = None
-        self.errLogFile = None
+        self.tdeferred = defer.Deferred()
+
+    def getTerminationDeferred(self):
+        return self.tdeferred
 
     def addEnvVar(self, key, value):
         # perform substitution
@@ -107,24 +106,6 @@ class SimpleProcess(EventSource):
             value = value.replace("${" + k + "}", v)
 
         self.env[key] = value
-
-    def setLogfiles(self, outlog, errlog):
-        # FIXME: hm.. this should get collected into a single log file or
-        # something...  additionally, the last log (or error) lines should
-        # be displayed in case of an error.
-        self.outLogFile = open(outlog, 'w')
-        self.errLogFile = open(errlog, 'w')
-
-    def setTerminationDeferred(self, d):
-        self.tdeferred = d
-
-    def logOutputData(self, data):
-        if self.outLogFile:
-            self.outLogFile.write(data)
-
-    def logErrorData(self, data):
-        if self.errLogFile:
-            self.errLogFile.write(data)
 
     def start(self):
         executable = self.args[0]
@@ -156,17 +137,16 @@ class SimpleProcess(EventSource):
         assert isinstance(exitCode, int)
         self.throwEvent(ProcessEndedEvent, exitCode)
 
-        if self.tdeferred:
-            reactor.callLater(0.0, self.tdeferred.callback, exitCode)
-
-        if self.outLogFile:
-            self.outLogFile.close()
-        if self.errLogFile:
-            self.errLogFile.close()
+        assert(not self.tdeferred.called)
+        reactor.callLater(0.0, self.tdeferred.callback, exitCode)
 
         self.running = False
 
     def stop(self, sig=signal.SIGTERM):
+        self._stop(sig)
+        return self.tdeferred
+
+    def _stop(self, sig=signal.SIGTERM):
         if self.running:
             try:
                 pid = int(self.protocol.transport.pid)
@@ -175,7 +155,7 @@ class SimpleProcess(EventSource):
                     next_sig = signal.SIGINT
                 else:
                     next_sig = signal.SIGKILL
-                reactor.callLater(10, self.stop, next_sig)
+                reactor.callLater(10, self._stop, next_sig)
             except TypeError, e:
                 # sometimes, self.protocol.transport.pid is not an
                 # integer. We assume the process has ended in the

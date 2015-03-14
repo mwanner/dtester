@@ -47,7 +47,7 @@ class IControlledHost(Interface):
         """ Dispatch a shell command to the host.
         """
 
-    def prepareProcess(cmdline, cwd=None):
+    def prepareProcess(name, cmdline, cwd=None, lineBasedOutput=False):
         """ Prepare a process to be run, returns a Process object.
         """
 

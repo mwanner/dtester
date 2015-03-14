@@ -26,8 +26,9 @@ class BaseTest(object):
 
     description = 'unnamed test'
 
-    def __init__(self, runner, *args, **kwargs):
+    def __init__(self, runner, test_name, *args, **kwargs):
         self.runner = runner
+        self.test_name = test_name
         assert(len(args) == 0)
 
         # FIXME: maybe these should not be set as attributes?
@@ -235,8 +236,8 @@ class TestSuite(BaseTest):
         L{tests<BaseTest>}.
     """
 
-    def __init__(self, runner, *args, **kwargs):
-        BaseTest.__init__(self, runner, *args, **kwargs)
+    def __init__(self, runner, test_name, *args, **kwargs):
+        BaseTest.__init__(self, runner, test_name, *args, **kwargs)
         self.children = []
 
     def setUpFailure(self, result):

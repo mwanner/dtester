@@ -10,14 +10,16 @@ scheduling of tests and test suites, running them in parallel based on an
 asynchronous event loop using twisted.
 """
 
-import os, copy, time, shlex, shutil
+import os, copy, time, shlex, shutil, operator
 
 from zope.interface import implements
 
 from twisted.python import failure
 from twisted.internet import defer, reactor
 
+from dtester import utils
 from dtester.test import BaseTest, TestSuite, Timeout
+from dtester.events import EventMatcher, StreamDataEvent
 from dtester.interfaces import IControlledHost
 from dtester.processes import SimpleProcess
 from dtester.exceptions import DefinitionError, TestSkipped, TimeoutError, \
@@ -70,6 +72,17 @@ class Localhost(TestSuite):
         self.temp_dir_counter = 1
         self.temp_ipv4_port = 32768
 
+    def setUp(self):
+        if os.path.exists(self.wd):
+            raise Exception("Given working directory %s exists, not overriding." % self.wd)
+        os.makedirs(self.wd)
+
+    def tearDown(self):
+        # FIXME: check for remaining files
+        # FIXME: not dropping?
+        # shutil.rmtree(self.wd)
+        pass
+
     # IControlledHost methods
     def joinPath(self, *paths):
         return os.path.join(*paths)
@@ -87,24 +100,11 @@ class Localhost(TestSuite):
         os.makedirs(path)
 
     def recursiveRemove(self, top):
-        for root, dirs, files in os.walk(top, topdown=False):
-            # sudo sysctl -w "kernel.core_pattern=core.%e.%p"
-            for name in files:
-                if name[:4] == "core":
-                    if os.path.exists(name):
-                        os.unlink(name)
-                    os.rename(os.path.join(root, name), name)
-                else:
-                    try:
-                        os.remove(os.path.join(root, name))
-                    except OSError:
-                        pass
-            for name in dirs:
-                os.rmdir(os.path.join(root, name))
-        try:
-            os.rmdir(top)
-        except OSError:
-            pass
+        if os.path.exists(top):
+            if os.path.isdir(top):
+                shutil.rmtree(top)
+            else:
+                os.unlink(top)
 
     def recursiveCopy(self, src, dest, ignore=None):
         if not os.path.exists(src):
@@ -131,14 +131,20 @@ class Localhost(TestSuite):
         self.temp_ipv4_port += 1
         return result
 
-    def prepareProcess(self, cmdline, cwd=None):
+    def prepareProcess(self, name, cmdline, cwd=None, lineBasedOutput=False):
         if isinstance(cmdline, str):
             cmdline = shlex.split(cmdline)
 
-        d = defer.Deferred()
-        proc = SimpleProcess(cmdline[0], cmdline[0], cwd, args=cmdline)
-        proc.setTerminationDeferred(d)
-        return proc, d
+        if cwd is None:
+            cwd = self.runner.getTmpDir()
+
+        proc = SimpleProcess(name, cmdline[0], cmdline[0], cwd,
+                             args=cmdline, lineBasedOutput=lineBasedOutput)
+        proc.addHook(EventMatcher(StreamDataEvent), self.logData)
+        return proc, proc.getTerminationDeferred()
+
+    def logData(self, event):
+        self.runner.evlogAppend(event.source.test_name, event.name, event.data)
 
 
 class InitialSuite(TestSuite):
@@ -162,14 +168,112 @@ class Runner:
         and test suites.
     """
     def __init__(self, reporter=None, testTimeout=15, suiteTimeout=60,
-                 controlReactor=True):
+                 controlReactor=True, tmpDir="tmp", reportDir="report"):
         self.reporter = reporter or reporterFactory()
         self.test_states = {}
         self.testTimeout = testTimeout
         self.suiteTimeout = suiteTimeout
         self.controlReactor = controlReactor
+        self.tmpDir = tmpDir
+        self.reportDir = reportDir
+        self.reportFiles = {}
+
+        if os.path.exists(tmpDir):
+            raise Exception("Temp dir ('%s') exists." % tmpDir)
+
+        if os.path.exists(reportDir):
+            raise Exception("Report dir ('%s') exists." % reportDir)
+
+        os.makedirs(tmpDir)
+        os.makedirs(reportDir)
+
+        self.evlog = open(os.path.join(self.tmpDir, "localhost-event.log"), 'w')
+        self.hostEventLogs = {'localhost': os.path.join(self.tmpDir, "localhost-event.log")}
+
+    def getTmpDir(self):
+        return self.tmpDir
+
+    def getReportDir(self):
+        return self.reportDir
+
+    def evlogAppend(self, test_name, channel, data):
+        t = time.time()
+
+        try:
+            self.evlog.write("%d:%s:%s:%s\n" % (t, test_name, channel, repr(data)))
+        except Exception, e:
+            self.reporter.log("Unable to write to event log: %s" % str(e))
+
+        # When running locally, we directly write to the reportDir.
+        try:
+            filename = test_name + "." + channel
+            if not filename in self.reportFiles:
+                path = os.path.join(self.reportDir, filename)
+                rf = open(path, 'w')
+                self.reportFiles[filename] = rf
+            else:
+                rf = self.reportFiles[filename]
+
+            # No timestamps in the report outputs files.
+            rf.write(data)
+        except Exception, e:
+            self.reporter.log("Unable to write to the report outputs: %s" % str(e))
+
+    def registerHostEventLog(self, test_name, logFile):
+        assert not test_name in self.hostEventLogs
+        self.hostEventLogs[test_name] = logFile
+
+    def mergeEventLogs(self):
+        stack = []
+        for test_name, logFile in self.hostEventLogs.iteritems():
+            fd = open(logFile, 'r')
+            try:
+                line = fd.next()
+                t, test_name, channel, data = line.split(':', 3)
+                clf = {'host': test_name,
+                       'fd': fd,
+                       'time': t,
+                       'rest': (test_name, channel, data)}
+                stack.append(clf)
+            except StopIteration:
+                pass
+
+        fullEventLog = open(os.path.join(self.reportDir, "event.log"), 'w')
+        while len(stack) > 0:
+            stack = sorted(stack, key=operator.itemgetter('time'))
+
+            t = stack[0]['time']
+            host = stack[0]['host']
+            test_name, channel, data = stack[0]['rest']
+
+            fullEventLog.write("%s\t%s\t%s\t%s\t%s" % (
+                t, host, test_name, channel, data))
+
+            # output to separate log files, in case of non-local stuff
+            if host != 'localhost':
+                args = utils.parseArgs(data, self.reporter.log)
+                assert len(args) == 1
+                filename = test_name + "." + channel
+                fd = open(os.path.join(self.reportDir, filename), 'a')
+                fd.write(args[0])
+                fd.close()
+
+            # iterate
+            try:
+                line = stack[0]['fd'].next()
+                t, test_name, channel, data = line.split(':', 3)
+
+                stack[0]['time'] = t
+                stack[0]['rest'] = (test_name, channel, data)
+            except StopIteration:
+                stack = stack[1:]
 
     def processCmdListFinished(self, result):
+        try:
+            self.evlog.close()
+        except Exception, e:
+            self.reporter.log("Unable to close event log.")
+
         count_total = 0
         count_succ = 0
         count_skipped = 0
@@ -208,6 +312,15 @@ class Runner:
         t_diff = time.time() - self.t_start
         self.reporter.end(t_diff, count_total, count_succ, count_skipped,
                           count_xfail, errors)
+
+        try:
+            # process and merge event logs
+            self.mergeEventLogs()
+
+            shutil.rmtree(self.tmpDir)
+
+        except Exception, e:
+            pass
 
         if self.controlReactor:
             reactor.stop()
@@ -347,7 +460,7 @@ class Runner:
         for i in range(len(args)):
             kwargs[tclass.args[i][0]] = args[i]
 
-        t = tclass(self, **kwargs)
+        t = tclass(self, tname, **kwargs)
         self.test_states[tname].setSuite(t)
 
         # add the new suite as child of the dependencies
@@ -652,7 +765,7 @@ class Runner:
         return (runnable, terminatable, running)
 
     def run(self, tdef, config):
-        system = InitialSuite(self, config=config, env=copy.copy(os.environ))
+        system = InitialSuite(self, 'localhost', config=config, env=copy.copy(os.environ))
         if self.controlReactor:
             reactor.callLater(0, self.processCmdList, tdef, system)
             reactor.run()
