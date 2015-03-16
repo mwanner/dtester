@@ -63,7 +63,7 @@ class SimpleProcess(EventSource):
         process, generating events for outputs to standard output and error
         channels as well as process termination.
     """
-    def __init__(self, test_name, proc_name, executable, cwd=os.getcwd(), args=None,
+    def __init__(self, test_name, proc_name, executable, cwd, args=None,
                  env=None, lineBasedOutput=False):
         EventSource.__init__(self)
 
@@ -81,6 +81,10 @@ class SimpleProcess(EventSource):
 
         self.proc_name = proc_name
         self.cwd = cwd
+
+        if not os.path.exists(cwd):
+            raise IOError("Work directory %s for process %s does not exist" % (
+                repr(cwd), repr(proc_name)))
 
         if env:
             self.env = env
@@ -108,22 +112,28 @@ class SimpleProcess(EventSource):
         self.env[key] = value
 
     def start(self):
-        executable = self.args[0]
+        exec_name = self.args[0]
 
+        executable = None
         executable_exists = False
 
-        if executable[0] == '/':
+        if exec_name[0] == '/':
+            executable = exec_name
             executable_exists = os.path.exists(executable)
+        elif exec_name[0] == '.':
+            executable = exec_name
+            executable_exists = os.path.exists(os.path.join(self.cwd, exec_name))
         else:
             if 'PATH' in self.env:
                 for path in self.env['PATH'].split(':'):
-                    if os.path.exists(os.path.join(path, executable)):
-                        executable = os.path.join(path, executable)
+                    fn = os.path.join(path, exec_name)
+                    if os.path.exists(fn):
+                        executable = fn
                         executable_exists = True
                         break
 
         if not executable_exists:
-            raise IOError("No such executable file: %s" % executable)
+            raise IOError("No such executable file: %s" % exec_name)
 
         reactor.spawnProcess(self.protocol, executable,
                              args=self.args, path=self.cwd, env=self.env,

@@ -63,6 +63,10 @@ class IDirectory(Interface):
         """ Returns the path on the host as a string.
         """
 
+    def getDesc():
+        """ Returns a printable description in the form of $host:$dir.
+        """
+
 
 class IInstalledSoftware(Interface):
 

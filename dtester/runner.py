@@ -91,8 +91,8 @@ class Localhost(TestSuite):
         return "localhost"
 
     def getTempDir(self, desc):
-        result = self.joinPath(os.getcwd(), "tmp-%s-%04d" % (
-            desc, self.temp_dir_counter))
+        result = self.joinPath(self.runner.getTmpDir(),
+                               "%s-%04d" % (desc, self.temp_dir_counter))
         self.temp_dir_counter += 1
         return result
 
@@ -178,14 +178,17 @@ class Runner:
         self.reportDir = reportDir
         self.reportFiles = {}
 
-        if os.path.exists(tmpDir):
+        self.tmpDir = os.path.abspath(tmpDir)
+        self.reportDir = os.path.abspath(reportDir)
+
+        if os.path.exists(self.tmpDir):
             raise Exception("Temp dir ('%s') exists." % tmpDir)
 
-        if os.path.exists(reportDir):
+        if os.path.exists(self.reportDir):
             raise Exception("Report dir ('%s') exists." % reportDir)
 
-        os.makedirs(tmpDir)
-        os.makedirs(reportDir)
+        os.makedirs(self.tmpDir)
+        os.makedirs(self.reportDir)
 
         self.evlog = open(os.path.join(self.tmpDir, "localhost-event.log"), 'w')
         self.hostEventLogs = {'localhost': os.path.join(self.tmpDir, "localhost-event.log")}
