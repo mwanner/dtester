@@ -22,10 +22,10 @@ def parseArgs(rest, errLogFunc):
             assert char in "0123456789" or char in "abcdef"
             hex_char += char
             if len(hex_char) == 2:
-                token += chr(hex_char)
+                token += "\\x" + hex_char
                 hex_char = ""
                 in_bl_hex_char = False
-        if char == "'" and not in_double_string and not in_number:
+        elif char == "'" and not in_double_string and not in_number:
             if not in_single_string:
                 in_single_string = True
             elif in_backslash:
@@ -74,18 +74,25 @@ def parseArgs(rest, errLogFunc):
                 in_backslash = False
             elif in_single_string or in_double_string:
                 token += char
+            elif in_number and char in ".0123456789+-e":
+                token += char
             else:
                 if char in " \n\r\t":
                     if in_number:
-                        args.append(int(token))
+                        if "." in token:
+                            args.append(float(token))
+                        else:
+                            args.append(int(token))
                     token = ""
                     in_number = False
                 else:
-                    errLogFunc("invalid char outside of token: '%s' in: %s"
-                               % (repr(char), line))
+                    errLogFunc("invalid char outside of token: '%s' in: %s" % (repr(char), rest))
 
     if in_number:
-        args.append(int(token))
+        if "." in token:
+            args.append(float(token))
+        else:
+            args.append(int(token))
     elif in_single_string or in_double_string:
         errLogFunc("unterminated string at end of line: %s" % repr(token))
         args.append(token)

@@ -26,6 +26,10 @@ class IControlledHost(Interface):
         """ Joins the given path components according to local system rules.
         """
 
+    def recursiveList(path):
+        """ Recursively list all contents of a directory.
+        """
+
     def recursiveRemove(path):
         """ Recursively removes a directory (or file).
         """
@@ -43,6 +47,10 @@ class IControlledHost(Interface):
             absolute path name.
         """
 
+    def utime(path, atime, mtime):
+        """ Adjusts a file's access and modification time.
+        """
+
     def dispatchCommand(cmd, *args):
         """ Dispatch a shell command to the host.
         """
@@ -53,6 +61,8 @@ class IControlledHost(Interface):
 
 
 class IDirectory(Interface):
+    """ A directory on a certain host, which is assumed to exist.
+    """
 
     def getHost():
         """ Returns an IControlledHost compatible object this directory

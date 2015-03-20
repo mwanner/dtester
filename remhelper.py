@@ -69,17 +69,25 @@ class CommandProcessor:
                     in_backslash = False
                 elif in_single_string or in_double_string:
                     token += char
+                elif in_number and char in ".0123456789+-e":
+                    token += char
                 else:
                     if char in " \n\r\t":
                         if in_number:
-                            args.append(int(token))
+                            if "." in token:
+                                args.append(float(token))
+                            else:
+                                args.append(int(token))
                         token = ""
                         in_number = False
                     else:
                         self.logParserError("invalid char outside of token: '%s' (in %s)" % (repr(char), repr(line)))
 
         if in_number:
-            args.append(int(token))
+            if "." in token:
+                args.append(float(token))
+            else:
+                args.append(int(token))
         elif in_single_string or in_double_string:
             self.logParserError("unterminated string at end of line: %s" % repr(token))
             args.append(token)
@@ -205,6 +213,12 @@ class readCmdPipeDispatcher(readPipeDispatcher, CommandProcessor):
                 self.parent.reportCmdError('tear_down expects exactly one argument')
             else:
                 self.parent.tearDown(*args)
+        elif cmd == 'list':
+            # recursive list
+            if len(args) != 2:
+                self.parent.reportCmdError('remove expects exactly two arguments')
+            else:
+                self.parent.startList(*args)
         elif cmd == 'remove':
             # recursive remove
             if len(args) != 2:
@@ -223,6 +237,12 @@ class readCmdPipeDispatcher(readPipeDispatcher, CommandProcessor):
                 self.parent.reportCmdError('makedirs expects exactly two arguments')
             else:
                 self.parent.startMakedirs(*args)
+        elif cmd == 'utime':
+            # utime
+            if len(args) != 4:
+                self.parent.reportCmdError('utime expects exactly four arguments')
+            else:
+                self.parent.startUtime(*args)
         elif cmd == 'copy':
             # copy (recursive as well)
             if len(args) < 3 or len(args) > 4:
@@ -502,6 +522,30 @@ class Helper:
         finally:
             self.reportJobDone(jobid)
 
+    def startList(self, jobid, top):
+        def y(etype, abs_path):
+            st = os.stat(abs_path)
+            ppath = abs_path[len(top)+1:]
+            self.reportLine("list_%s %d %s %f %f %f" % (
+                etype, jobid, repr(ppath), st.st_atime, st.st_mtime, st.st_ctime))
+
+        try:
+            assert not top.endswith('/')
+            assert not top.endswith('\\')
+
+            for root, dirs, files in os.walk(top):
+                for path in dirs:
+                    y('dir', os.path.join(root, path))
+                for path in files:
+                    y('file', os.path.join(root, path))
+
+        except exceptions.OSError, e:
+            self.reportJobFailed(jobid, e.strerror)
+        except Exception, e:
+            self.reportJobFailed(jobid, str(e))
+        else:
+            self.reportJobDone(jobid)
+
     def startRemove(self, jobid, path):
         try:
             if os.path.exists(path):
@@ -547,6 +591,16 @@ class Helper:
             os.makedirs(path)
         except exceptions.OSError, e:
             self.reportJobFailed(jobid, e.strerror)
+        else:
+            self.reportJobDone(jobid)
+
+    def startUtime(self, jobid, path, atime, utime):
+        try:
+            os.utime(path, (atime, utime))
+        except exceptions.OSError, e:
+            self.reportJobFailed(jobid, e.strerror)
+        except Exception, e:
+            self.reportJobFailed(jobid, str(e))
         else:
             self.reportJobDone(jobid)
 

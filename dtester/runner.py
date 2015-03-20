@@ -99,6 +99,22 @@ class Localhost(TestSuite):
     def makeDirectory(self, path):
         os.makedirs(path)
 
+    def utime(self, path, atime, utime):
+        os.utime(path, (atime, utime))
+
+    def recursiveList(self, top):
+        def y(etype, abs_path):
+            st = os.stat(abs_path)
+            ppath = abs_path[len(top)+1:]
+            return (etype, ppath, st.st_atime, st.st_mtime, st.st_ctime)
+
+        for root, dirs, files in os.walk(top):
+            for path in dirs:
+                yield y('dir', os.path.join(root, path))
+
+            for path in files:
+                yield y('file', os.path.join(root, path))
+
     def recursiveRemove(self, top):
         if os.path.exists(top):
             if os.path.isdir(top):

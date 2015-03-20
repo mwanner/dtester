@@ -685,6 +685,7 @@ class TestSSHSuite(TestSuite):
 
         self.pendingJobs = {}
         self.pendingProcs = {}
+        self.pendingLists = {}
         self.completedProcs = {} # only holds a jobid -> name map
 
         # assign temporary ports starting from 32768
@@ -860,6 +861,10 @@ class TestSSHSuite(TestSuite):
             self.processHookDropped(*args)
         elif cmd == "hook_matched":
             self.processHookMatched(*args)
+        elif cmd == "list_file":
+            self.processListEntry('file', *args)
+        elif cmd == "list_dir":
+            self.processListEntry('dir', *args)
         else:
             self.processUnknownCommand(cmd, *args)
 
@@ -898,6 +903,10 @@ class TestSSHSuite(TestSuite):
             self.completedProcs[jobid] = proc.name
             del self.pendingProcs[jobid]
             d.callback(retcode)
+        elif jobid in self.pendingLists:
+            result = self.pendingLists[jobid]
+            del self.pendingLists[jobid]
+            d.callback(result)
         else:
             #self.runner.log("remote job terminated (success)")
             d.callback(None)
@@ -925,6 +934,16 @@ class TestSSHSuite(TestSuite):
                 d.errback(Exception(args[0]))
             else:
                 d.errback(Exception(repr(args)))
+
+            if jobid in self.pendingLists:
+                del self.pendingLists[jobid]
+
+    def processListEntry(self, etype, jobid, path, atime, mtime, ctime):
+        if jobid not in self.pendingJobs:
+            self.runner.log("remote helper sent 'list_file' for unknown job id %d" % jobid)
+            raise Exception("remote helper sent 'list_file' for unknown job id %d" % jobid)
+
+        self.pendingLists[jobid].append((etype, path, atime, mtime, ctime))
 
     def processUnknownCommand(self, cmd, *args):
         raise Exception("remote helper sent unknown command %s" % repr(cmd))
@@ -985,6 +1004,11 @@ class TestSSHSuite(TestSuite):
         self.pendingJobs[jobid] = (d, cmd, args)
         return d, jobid
 
+    def recursiveList(self, path):
+        d, jobid = self.dispatchCommand("list", path)
+        self.pendingLists[jobid] = []
+        return d
+
     def recursiveRemove(self, path):
         d, jobid = self.dispatchCommand("remove", path)
         return d
@@ -999,6 +1023,10 @@ class TestSSHSuite(TestSuite):
 
     def makeDirectory(self, path):
         d, jobid = self.dispatchCommand("makedirs", path)
+        return d
+
+    def utime(self, path, atime, mtime):
+        d, jobid = self.dispatchCommand("utime", path, atime, mtime)
         return d
 
     def prepareProcess(self, name, cmdline, cwd=None, lineBasedOutput=False):
@@ -1081,10 +1109,4 @@ class TestSSHSuite(TestSuite):
         result = self.temp_ipv4_port
         self.temp_ipv4_port += 1
         return result
-
-    def uploadFile(self, filename):
-        return True
-
-    def downloadFile(self, filename):
-        return False
 
