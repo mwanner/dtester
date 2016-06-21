@@ -153,6 +153,9 @@ class BaseTest(object):
             leaves = (leaves,)
         self.runner.addNestedSuites(self, tdef, leaves)
 
+    def getNestedSuite(self, sub_tname):
+        return self.runner.getNestedSuite(self, sub_tname)
+
     def log(self, msg):
         self.runner.log(msg)
 

@@ -37,15 +37,18 @@ class NestedSuite(dtester.test.TestSuite):
         }
         self.addNestedSuites(tdef, ['nested_suite'])
 
+    def sayHello(self):
+        return self.getNestedSuite('nested_suite').sayHello()
+
+
 class SampleTestSuite(dtester.test.TestSuite):
     """ A sample test suite, basically a no-op.
     """
 
-    def setUpDescription(self):
-        return "starting test suite"
+    implements(ISampleTestSuite)
 
-    def tearDownDescription(self):
-        return "stopping test suite"
+    setUpDescription = "starting the nested suite"
+    tearDownDescription = "stopping the nested suite"
 
     def setUp(self):
         pass
@@ -54,19 +57,19 @@ class SampleTestSuite(dtester.test.TestSuite):
         pass
 
     def sayHello(self):
-        pass
+        self.runner.log("hello, says the nested suite")
 
 
 class SampleTest(dtester.test.SyncTest):
 
     description = "simple test"
 
-    # FIXME: ISampleTestSuite isn't implemented nor checked
+    # FIXME: the runner doesn't check whether ISampleTestSuite is
+    # properly implemented.
     needs = (('s1', ISampleTestSuite),)
 
     def run(self):
-        # print "running a sample test"
-        pass
+        self.s1.sayHello()
 
 
 tdef = {
@@ -77,4 +80,3 @@ tdef = {
 config = {}
 runner = dtester.runner.Runner()
 runner.run(tdef, config)
-

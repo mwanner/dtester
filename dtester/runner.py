@@ -46,6 +46,8 @@ class TestState:
         self.tDependencies = []
         self.tOnlyAfter = []
         self.tArgs = []
+        self.tNestedLeaves = set()
+        self.tNesteeOf = set()
 
     def isRunning(self):
         return self.running
@@ -304,10 +306,18 @@ class Runner:
         errors = []
         for name, state in self.test_states.iteritems():
             isSuite = issubclass(state.tClass, TestSuite)
-            if state.tStatus != 'done':
+            if state.tStatus not in ('done', 'failed'):
                 # FIXME: if we'd track dependencies correctly, this should
                 #        not happen.
-                self.reporter.log("FIXME: track dependencies correctly!")
+                self.reporter.log("FIXME: track dependencies correctly!" +
+                    "%s is not done, yet, but in state '%s'. Will skip." % (
+                        name, state.tStatus))
+
+        for name, state in self.test_states.iteritems():
+            isSuite = issubclass(state.tClass, TestSuite)
+            if state.tStatus not in ('done', 'failed'):
+                # FIXME: if we'd track dependencies correctly, this should
+                #        not happen.
                 self.reporter.stopTest(name, None, "SKIPPED", None)
 
             if state.failure:
@@ -361,7 +371,8 @@ class Runner:
         return None
 
     def ebSuiteSetUpFailed(self, error, suite_name, suite):
-        self.test_states[suite_name].tStatus = 'done'
+        self.reporter.log("setUp failed for test suite: '%s'" % suite_name)
+        self.test_states[suite_name].tStatus = 'failed'
         self.test_states[suite_name].failure = error
         self.reporter.stopSetUpSuite(suite_name, suite)
         self.reporter.suiteSetUpFailure(suite_name, error)
@@ -557,11 +568,15 @@ class Runner:
         raise Exception("test %s not found" % test)
 
     def addNestedSuites(self, test, tdef, leaves):
+        """ Note that this function returns *before* any of the nested
+            test's setUp methods are called.
+        """
         tname = self.getNameOfTest(test)
         self.parseTestDef(tdef, tname)
 
         # turn the leave test names into fully quoted ones
         leaves = [tname + "." + x for x in leaves]
+        assert(len(leaves) > 0)
 
         # make all dependents of the calling test also depend on the leaves
         # of this nested tdef
@@ -572,8 +587,30 @@ class Runner:
                 if depname not in self.test_states[lname].tDependents:
                     self.test_states[lname].tDependents.append(depname)
 
-        # FIXME: must return a deferred, waiting for all leaves to finish
-		# their setUp...
+        for nested_tname in tdef.keys():
+            full_nested_tname = tname + '.' + nested_tname
+            assert(full_nested_tname not in
+                       self.test_states[tname].tDependents)
+            self.test_states[tname].tDependents.append(full_nested_tname)
+
+            assert(tname not in
+                       self.test_states[full_nested_tname].tDependencies)
+            self.test_states[full_nested_tname].tDependencies.append(tname)
+
+        # setup dependencies between tname and all leaves of the nested
+        # tests.
+        for leave in leaves:
+            self.test_states[tname].tNestedLeaves.add(leave)
+            self.test_states[leave].tNesteeOf.add(tname)
+
+        # intentionally not returning a deferred here, as the caller
+        # shouldn't need to wait for the nested tests's setUp to
+        # complete.
+
+    def getNestedSuite(self, test, sub_tname):
+        tname = self.getNameOfTest(test)
+        sub_tname = tname + '.' + sub_tname
+        return self.test_states[sub_tname].getSuite()
 
     def parseTestDef(self, tdef, parentName=None):
         # essentially copy the test definitions into our own
@@ -679,12 +716,13 @@ class Runner:
         return d
 
     def iterate(self, result):
-        (runnableTests, terminatableTests, runningTests) = \
+        (runnableTests, terminatableTests, abortableTests, runningTests) = \
             self.checkDependencies()
-        if 0:
+        if False:
             self.reporter.log("-----------------------------------------------------")
             self.reporter.log("runnable Tests: %s" % str(runnableTests))
             self.reporter.log("terminatable Tests: %s" % str(terminatableTests))
+            self.reporter.log("abortable Tests: %s" % str(abortableTests))
             self.reporter.log("running Tests: %s" % str(runningTests))
             self.reporter.log("    test states:")
             for tname, t in self.test_states.iteritems():
@@ -692,10 +730,16 @@ class Runner:
                     spaces = " " * (30 - len(tname))
                     self.reporter.log("        %s:%s%s" % (tname, spaces, t.tStatus))
 
-        if len(runnableTests) + len(terminatableTests) == 0:
+        if len(runnableTests) + len(terminatableTests) + len(abortableTests) == 0:
             return None
 
         dl = []
+        for tname in abortableTests:
+            t = self.test_states[tname]
+            if t.tStatus == 'running':
+                suite = t.getSuite()
+                suite.abort()
+
         for tname in terminatableTests:
             t = self.test_states[tname]
 
@@ -707,7 +751,7 @@ class Runner:
 
                 d = defer.maybeDeferred(self.teardownTest, tname)
                 dl.append(d)
-
+    
         for tname in runnableTests:
             t = self.test_states[tname]
 
@@ -720,6 +764,7 @@ class Runner:
                 d = defer.maybeDeferred(self.startupTest, tname,
                                         t.tClass, t.tNeeds, t.tArgs,
                                         t.tDependencies)
+                d.addCallback(self.testStartupSucceeded, tname, t)
                 d.addErrback(self.testStartupFailed, tname, t)
                 dl.append(d)
 
@@ -731,9 +776,30 @@ class Runner:
 
         return None
 
+    def checkNestedSetupDone(self, parent_tname, nestee_tname):
+        allGood = True
+        failedLeaves = set()
+        for leave_tname in self.test_states[parent_tname].tNestedLeaves:
+            leaveState = self.test_states[leave_tname].tStatus
+            if leaveState in ('running', 'waiting', 'done'):
+                pass
+            elif leaveState == 'failed':
+                allGood = False
+                failedLeaves.add(leave_tname)
+            else:
+                self.reporter.log("checkNestedSetupDone: " +
+                                  "unknown leave state: '%s'" % leaveState)
+
+    def testStartupSucceeded(self, result, tname, t):
+        for parent in self.test_states[tname].tNesteeOf:
+            self.checkNestedSetupDone(parent, tname)
+
     def testStartupFailed(self, error, tname, t):
         t.tStatus = 'done'
         t.failure = error
+
+        self.reporter.log("testStartupFailed: %s: %s" % (
+            tname, repr(error.value)))
 
         (inner_error, tb, tbo) = self.reporter.getInnerError(error)
 
@@ -746,42 +812,85 @@ class Runner:
             result = "TIMEOUT"
 
         self.reporter.stopTest(tname, t.suite, result, error)
+
+        for parent in self.test_states[tname].tNesteeOf:
+            self.checkNestedSetupDone(parent, tname)
+
         return None
+
+    def runningSuiteFailed(self, tname, errmsg, *args, **kwargs):
+        assert tname in self.test_states
+        t = self.test_states[tname]
+
+        t.tStatus = 'failed'
+        self.reporter.log("ERROR: %s failed unexpectedly" % tname)
+
+        for dep_name in t.tDependents:
+            self.reporter.log("terminating dependency %s" % dep_name)
+            d = self.test_states[dep_name]
+            if d.tStatus in ('starting', 'running', 'stopping'):
+                suite = d.getSuite()
+                suite.abort("dependency %s failed" % tname)
+
+        suite = t.getSuite()
+        suite.abort(*args, **kwargs)
 
     def log(self, msg):
         self.reporter.log(msg)
 
     def checkDependencies(self):
+        DEBUG = False
         runnable = []
         terminatable = []
+        abortable = []
         running = []
         for name, t in self.test_states.iteritems():
+            if t.tStatus in ('done', 'failed'):
+                continue
             unready_dependencies = 0
+            failed_dependencies = 0
             done_dependents = 0
-            #print "test %s:" % (name,)
+            if DEBUG:
+                print "test %s:" % (name,)
             for dep_name in t.tDependents:
-                #print "    dependent: %s: status: %s" % (dep_name, self.test_states[dep_name].tStatus)
+                if DEBUG:
+                    print("    dependent: %s: status: %s" % (
+                        dep_name, self.test_states[dep_name].tStatus))
                 d = self.test_states[dep_name]
-                if d.tStatus in ('done',):
+                if d.tStatus in ('done', 'failed'):
                     done_dependents += 1
 
             deps = t.tNeeds + t.tDependencies
             for dep_name in deps:
-                #print "    dependency: %s: status: %s" % (dep_name, self.test_states[dep_name].tStatus)
+                if DEBUG:
+                    print("    dependency: %s: status: %s" % (
+                        dep_name, self.test_states[dep_name].tStatus))
                 d = self.test_states[dep_name]
-                if d.tStatus in ('waiting', 'starting', 'failed'):
+                if d.tStatus in ('waiting', 'starting'):
                     unready_dependencies += 1
+                elif d.tStatus in ('failed',):
+                    failed_dependencies += 1
+                elif d.tStatus in ('done',):
+                    self.reporter.log("FATAL ERROR: dependency tracking: required test suite '%s' required for '%s' already in 'done' state" % (dep_name, name))
                 elif d.tStatus in ('running') and not d.getSuite().readyForChild(name):
                     unready_dependencies += 1
 
             for dep_name in t.tOnlyAfter:
-                #print "    onlyAfter dep: %s: status: %s" % (dep_name, self.test_states[dep_name].tStatus)
+                if DEBUG:
+                    print("    onlyAfter dep: %s: status: %s" % (
+                        dep_name, self.test_states[dep_name].tStatus))
                 d = self.test_states[dep_name]
-                if d.tStatus != 'done':
+                if d.tStatus == 'failed':
+                    failed_dependencies += 1
+                elif d.tStatus != 'done':
                     unready_dependencies += 1
 
-            #print "task %s: unready deps: %d  done_deps: %d" % (name, unready_dependencies, done_dependents)
-            if t.tStatus == 'waiting' and unready_dependencies == 0:
+            if DEBUG:
+                print("task %s: unready deps: %d  done_deps: %d" % (
+                    name, unready_dependencies, done_dependents))
+            if t.tStatus in ('running', 'starting', 'waiting') and failed_dependencies > 0:
+                abortable.append(name)
+            elif t.tStatus == 'waiting' and unready_dependencies == 0:
                 runnable.append(name)
             elif t.tStatus == 'running' and done_dependents == len(t.tDependents):
                 terminatable.append(name)
@@ -789,7 +898,7 @@ class Runner:
             if t.tStatus in ('starting', 'running', 'stopping'):
                 running.append(name)
 
-        return (runnable, terminatable, running)
+        return (runnable, terminatable, abortable, running)
 
     def run(self, tdef, config):
         system = InitialSuite(self, 'localhost', config=config, env=copy.copy(os.environ))
@@ -798,4 +907,3 @@ class Runner:
             reactor.run()
         else:
             return self.processCmdList(tdef, system)
-
