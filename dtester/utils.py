@@ -50,7 +50,7 @@ def parseArgs(rest, errLogFunc):
                 in_backslash = True
             else:
                 errLogFunc("WARNING: invalid position for backslash, ignored!")
-        elif char in "0123456789" and not in_backslash:
+        elif char in "-.0123456789" and not in_backslash:
             if in_number or in_single_string or in_double_string:
                 token += char
             else:
@@ -89,7 +89,7 @@ def parseArgs(rest, errLogFunc):
                     errLogFunc("invalid char outside of token: '%s' in: %s" % (repr(char), rest))
 
     if in_number:
-        if "." in token:
+        if "." in token or 'e' in token:
             args.append(float(token))
         else:
             args.append(int(token))

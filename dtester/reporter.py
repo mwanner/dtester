@@ -14,7 +14,7 @@ from twisted.internet import defer
 from twisted.python import failure
 from dtester.test import BaseTest, TestSuite
 from dtester.exceptions import TestFailure, TimeoutError, TestSkipped, \
-    DefinitionError, FailureCollection, UnableToRun
+    DefinitionError, FailureCollection, UnableToRun, FailedDependencies
 
 
 class Reporter:
@@ -103,8 +103,10 @@ class Reporter:
 
         errmsg = repr(inner_error)
 
-        # skip filename and line number for DefinitionErrors
-        if isinstance(inner_error, DefinitionError):
+        # skip filename and line number for DefinitionErrors and
+        # FailedDependencies
+        if isinstance(inner_error, DefinitionError) or \
+            isinstance(inner_error, FailedDependencies):
             filename = None
             lineno = None
 

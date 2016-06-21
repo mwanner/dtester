@@ -112,10 +112,12 @@ class AbstractSelfTest(test.BaseTest):
         fn = "test_" + self.__class__.__name__
         outs = open(fn + ".out", "w")
         errs = open(fn + ".err", "w")
+
         run = runner.Runner(self.createReporter(outs, errs),
                             testTimeout=self.TEST_TIMEOUT,
                             suiteTimeout=self.SUITE_TIMEOUT,
-                            controlReactor=False)
+                            controlReactor=False,
+                            tmpDir='tmp-%s' % self.__class__)
         d = run.run(self.tdef, {})
         d.addBoth(self.cleanup, outs, errs)
         d.addCallback(self.compareResult, fn)

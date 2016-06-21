@@ -41,6 +41,7 @@ class BaseTest(object):
         #    setattr(self, a[0], kwargs[a[0]])
         self.wait_deferred = None
         self.running = False
+        self.stopping = False
         self.aborted = False
 
         if hasattr(self, "postInit"):
@@ -72,6 +73,7 @@ class BaseTest(object):
         pass
 
     def _tearDown(self):
+        self.stopping = True
         d = defer.maybeDeferred(self.tearDown)
         d.addBoth(self._tornDown)
         return d

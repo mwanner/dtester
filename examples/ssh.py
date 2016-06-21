@@ -19,7 +19,7 @@ home = os.getenv('HOME', '/home/nobody')
 
 tdef = {
     'ssh1': {'class': dtester.net.ssh.TestSSHSuite,
-             'args': (user, 'localhost', 22, home)}
+             'args': (user, 'localhost', 22, home + '/.dtester')}
 }
 
 config = {}

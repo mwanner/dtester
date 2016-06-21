@@ -70,7 +70,7 @@ class Localhost(TestSuite):
 
     def postInit(self):
         self.temp_dir_counter = 1
-        self.temp_ipv4_port = 32768
+        self.temp_port = 32768
 
     def setUp(self):
         if os.path.exists(self.wd):
@@ -79,9 +79,7 @@ class Localhost(TestSuite):
 
     def tearDown(self):
         # FIXME: check for remaining files
-        # FIXME: not dropping?
-        # shutil.rmtree(self.wd)
-        pass
+        shutil.rmtree(self.wd)
 
     # IControlledHost methods
     def joinPath(self, *paths):
@@ -89,6 +87,11 @@ class Localhost(TestSuite):
 
     def getHostName(self):
         return "localhost"
+
+    def getHostFrom(self, fromHost):
+        """ FIXME: proper implementation still pending.
+        """
+        raise Exception("Unable to determine host name from %s" % fromHost)
 
     def getTempDir(self, desc):
         result = self.joinPath(self.runner.getTmpDir(),
@@ -142,12 +145,12 @@ class Localhost(TestSuite):
         f.write(data)
         f.close()
 
-    def getTempIP4Port(self):
-        result = self.temp_ipv4_port
-        self.temp_ipv4_port += 1
+    def getTempPort(self):
+        result = self.temp_port
+        self.temp_port += 1
         return result
 
-    def prepareProcess(self, name, cmdline, cwd=None, lineBasedOutput=False):
+    def prepareProcess(self, name, cmdline, cwd=None, lineBasedOutput=True, ignoreOutput=False):
         if isinstance(cmdline, str):
             cmdline = shlex.split(cmdline)
 
@@ -155,7 +158,8 @@ class Localhost(TestSuite):
             cwd = self.runner.getTmpDir()
 
         proc = SimpleProcess(name, cmdline[0], cmdline[0], cwd,
-                             args=cmdline, lineBasedOutput=lineBasedOutput)
+                             args=cmdline, lineBasedOutput=lineBasedOutput,
+                             ignoreOutput=ignoreOutput)
         proc.addHook(EventMatcher(StreamDataEvent), self.logData)
         return proc, proc.getTerminationDeferred()
 
@@ -184,7 +188,7 @@ class Runner:
         and test suites.
     """
     def __init__(self, reporter=None, testTimeout=15, suiteTimeout=60,
-                 controlReactor=True, tmpDir="tmp", reportDir="report"):
+                 controlReactor=True, tmpDir="tmp", reportDir=None):
         self.reporter = reporter or reporterFactory()
         self.test_states = {}
         self.testTimeout = testTimeout
@@ -195,25 +199,23 @@ class Runner:
         self.reportFiles = {}
 
         self.tmpDir = os.path.abspath(tmpDir)
-        self.reportDir = os.path.abspath(reportDir)
-
         if os.path.exists(self.tmpDir):
-            raise Exception("Temp dir ('%s') exists." % tmpDir)
+            raise Exception("Temp directory '%s' exists." % tmpDir)
 
-        if os.path.exists(self.reportDir):
-            raise Exception("Report dir ('%s') exists." % reportDir)
+        if reportDir:
+            self.reportDir = os.path.abspath(reportDir)
+            if os.path.exists(self.reportDir):
+                raise Exception("Report directory '%s' exists." % reportDir)
 
         os.makedirs(self.tmpDir)
-        os.makedirs(self.reportDir)
+        if reportDir:
+            os.makedirs(self.reportDir)
 
         self.evlog = open(os.path.join(self.tmpDir, "localhost-event.log"), 'w')
         self.hostEventLogs = {'localhost': os.path.join(self.tmpDir, "localhost-event.log")}
 
     def getTmpDir(self):
         return self.tmpDir
-
-    def getReportDir(self):
-        return self.reportDir
 
     def evlogAppend(self, test_name, channel, data):
         t = time.time()
@@ -223,20 +225,22 @@ class Runner:
         except Exception, e:
             self.reporter.log("Unable to write to event log: %s" % str(e))
 
-        # When running locally, we directly write to the reportDir.
-        try:
-            filename = test_name + "." + channel
-            if not filename in self.reportFiles:
-                path = os.path.join(self.reportDir, filename)
-                rf = open(path, 'w')
-                self.reportFiles[filename] = rf
-            else:
-                rf = self.reportFiles[filename]
+        # When running locally, we directly write to the reportDir, if
+        # required.
+        if self.reportDir:
+            try:
+                filename = test_name + "." + channel
+                if not filename in self.reportFiles:
+                    path = os.path.join(self.reportDir, filename)
+                    rf = open(path, 'w')
+                    self.reportFiles[filename] = rf
+                else:
+                    rf = self.reportFiles[filename]
 
-            # No timestamps in the report outputs files.
-            rf.write(data)
-        except Exception, e:
-            self.reporter.log("Unable to write to the report outputs: %s" % str(e))
+                # No timestamps in the report outputs files.
+                rf.write(data)
+            except Exception, e:
+                self.reporter.log("Unable to write to the report outputs: %s" % str(e))
 
     def registerHostEventLog(self, test_name, logFile):
         assert not test_name in self.hostEventLogs
@@ -334,7 +338,8 @@ class Runner:
 
         try:
             # process and merge event logs
-            self.mergeEventLogs()
+            if self.reportDir:
+                self.mergeEventLogs()
 
             shutil.rmtree(self.tmpDir)
 
@@ -567,6 +572,9 @@ class Runner:
                 if depname not in self.test_states[lname].tDependents:
                     self.test_states[lname].tDependents.append(depname)
 
+        # FIXME: must return a deferred, waiting for all leaves to finish
+		# their setUp...
+
     def parseTestDef(self, tdef, parentName=None):
         # essentially copy the test definitions into our own
         # test_states structure.
@@ -680,7 +688,7 @@ class Runner:
             self.reporter.log("running Tests: %s" % str(runningTests))
             self.reporter.log("    test states:")
             for tname, t in self.test_states.iteritems():
-                if t.tStatus not in ('done', 'waiting'):
+                if 1 or t.tStatus not in ('done', 'waiting'):
                     spaces = " " * (30 - len(tname))
                     self.reporter.log("        %s:%s%s" % (tname, spaces, t.tStatus))
 

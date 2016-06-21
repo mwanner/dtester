@@ -28,12 +28,14 @@ class NestedSuite(dtester.test.TestSuite):
 
     implements(ISampleTestSuite)
 
+    setUpDescription = "setting up the parent suite"
+    tearDownDescription = "tearing down the parent suite"
+
     def setUp(self):
         tdef = {
             'nested_suite':       {'class': SampleTestSuite}
         }
         self.addNestedSuites(tdef, ['nested_suite'])
-
 
 class SampleTestSuite(dtester.test.TestSuite):
     """ A sample test suite, basically a no-op.

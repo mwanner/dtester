@@ -38,7 +38,7 @@ class dtest(test.test):
         self.test_args = [self.test_def]
 
         if self.verbose:
-            self.test_args.insert(0,'--verbose')
+            self.test_args.insert(0, '--verbose')
 
     def run(self):
         if self.distribution.install_requires:

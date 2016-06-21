@@ -129,6 +129,10 @@ class RemoteWorkingTreeCopy(TestSuite):
             d = self.dest_host.uploadFile(src_path, dest_path)
             d.addErrback(self.printUploadError, path, self.dest_host.getHostName())
             return d
+        elif not isinstance(self.src_host, Localhost) and isinstance(self.dest_host, Localhost):
+            d = self.src_host.downloadFile(src_path, dest_path)
+            d.addErrback(self.printDownloadError, path, self.src_host.getHostName())
+            return d
         else:
             import os
             import random
@@ -151,11 +155,11 @@ class RemoteWorkingTreeCopy(TestSuite):
         return self.dest_host.utime(path, atime, mtime)
 
     def printDownloadError(self, failure, path, hostname):
-        self.runner.log("error downloading %s from %s, file skipped" % (repr(path), hostname))
+        self.runner.log("error downloading %s from %s" % (repr(path), hostname))
         return failure
 
     def printUploadError(self, failure, path, hostname):
-        self.runner.log("error uploading %s to %s, file skipped" % (repr(path), hostname))
+        self.runner.log("error uploading %s to %s" % (repr(path), hostname))
         return failure
 
     def tearDown(self):

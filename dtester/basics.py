@@ -69,9 +69,10 @@ class PreparationProcessMixin:
     """ A mixin for TestSuites which require a single process to run in
         preparation (i.e. during setUp).
     """
-    def runProcess(self, host, name, cmdline, cwd=None, lineBasedOutput=False):
+    def runProcess(self, host, name, cmdline, cwd=None, lineBasedOutput=True, ignoreOutput=False):
         proc, d = host.prepareProcess(self.test_name + "." + name, cmdline,
-                                      cwd=cwd, lineBasedOutput=lineBasedOutput)
+                                      cwd=cwd, lineBasedOutput=lineBasedOutput,
+                                      ignoreOutput=ignoreOutput)
         d.addCallback(self.expectExitCode, 0, self.description)
         self.processSettings(proc)
         reactor.callLater(0.0, self.startProcess, proc, d)
@@ -86,4 +87,3 @@ class PreparationProcessMixin:
 
     def processSettings(self, proc):
         pass
-

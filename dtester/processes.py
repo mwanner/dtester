@@ -15,9 +15,9 @@ from twisted.internet import protocol, reactor, defer
 from dtester.events import EventSource, ProcessEndedEvent, \
                            ProcessOutStreamEvent, ProcessErrStreamEvent
 
-class SimpleProcessProtocol(protocol.ProcessProtocol):
-    """ A simple protocol helper for L{SimpleProcess}, generating events
-        for every single piece of data received.
+class ProcessEndedProtocol(protocol.ProcessProtocol):
+    """ A simple protocol helper for L{SimpleProcess}, generating only a
+        process ended event.
     """
     def __init__(self, evSource):
         self.eventSource = evSource
@@ -25,22 +25,26 @@ class SimpleProcessProtocol(protocol.ProcessProtocol):
     def connectionMade(self):
         self.transport.closeStdin()
 
+    def processEnded(self, status):
+        self.eventSource.processEnded(status.value.exitCode)
+
+class SimpleProcessProtocol(ProcessEndedProtocol):
+    """ A simple protocol helper for L{SimpleProcess}, generating events
+        for every single piece of data received.
+    """
     def outReceived(self, data):
         self.eventSource.throwEvent(ProcessOutStreamEvent, data)
 
     def errReceived(self, data):
         self.eventSource.throwEvent(ProcessErrStreamEvent, data)
 
-    def processEnded(self, status):
-        self.eventSource.processEnded(status.value.exitCode)
-
-class SimpleProcessLineBasedProtocol(SimpleProcessProtocol):
+class SimpleProcessLineBasedProtocol(ProcessEndedProtocol):
     """ A line based protocol helper for L{SimpleProcess}, generating events
         only for complete lines of data. Useful for processes with line based
         console UIs.
     """
     def __init__(self, evSource):
-        SimpleProcessProtocol.__init__(self, evSource)
+        ProcessEndedProtocol.__init__(self, evSource)
         self.outBuffer = ""
         self.errBuffer = ""
 
@@ -64,7 +68,7 @@ class SimpleProcess(EventSource):
         channels as well as process termination.
     """
     def __init__(self, test_name, proc_name, executable, cwd, args=None,
-                 env=None, lineBasedOutput=False):
+                 env=None, lineBasedOutput=True, ignoreOutput=False):
         EventSource.__init__(self)
 
         self.test_name = test_name
@@ -74,7 +78,9 @@ class SimpleProcess(EventSource):
             if not isinstance(x, str):
                 print "argument for %s is not a string: '%s'\n\n\n\n" % (proc_name, x)
 
-        if lineBasedOutput:
+        if ignoreOutput:
+            self.protocol = SwallowProcessProtocol(self)
+        elif lineBasedOutput:
             self.protocol = SimpleProcessLineBasedProtocol(self)
         else:
             self.protocol = SimpleProcessProtocol(self)
@@ -152,17 +158,17 @@ class SimpleProcess(EventSource):
 
         self.running = False
 
-    def stop(self, sig=signal.SIGTERM):
+    def stop(self, sig=signal.SIGINT):
         self._stop(sig)
         return self.tdeferred
 
-    def _stop(self, sig=signal.SIGTERM):
+    def _stop(self, sig=signal.SIGINT):
         if self.running:
             try:
                 pid = int(self.protocol.transport.pid)
                 os.kill(pid, sig)
-                if sig == signal.SIGTERM:
-                    next_sig = signal.SIGINT
+                if sig == signal.SIGINT:
+                    next_sig = signal.SIGTERM
                 else:
                     next_sig = signal.SIGKILL
                 reactor.callLater(10, self._stop, next_sig)

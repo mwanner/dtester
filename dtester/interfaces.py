@@ -17,12 +17,21 @@ class IControlledHost(Interface):
         """ Returns the name of the host as a string.
         """
 
+    def getHostFrom(fromHost):
+        """ Returns a hostname, IPv4 or IPv6 address that represents how
+            this host is reachable from the given fromHost.
+        """
+
     def getTempDir(name):
         """ Returns an absolute path to a temporary directory to use on
             this host.
         """
 
-    def joinPath(paths):
+    def getTempPort():
+        """ Returns a random, free port to listen on.
+        """
+
+    def joinPath(*paths):
         """ Joins the given path components according to local system rules.
         """
 
@@ -55,8 +64,16 @@ class IControlledHost(Interface):
         """ Dispatch a shell command to the host.
         """
 
-    def prepareProcess(name, cmdline, cwd=None, lineBasedOutput=False):
+    def prepareProcess(name, cmdline, cwd=None, lineBasedOutput=True, ignoreOutput=False):
         """ Prepare a process to be run, returns a Process object.
+        """
+
+    def uploadFile(srcPath, destPath):
+        """ Upload a file.
+        """
+
+    def downloadFile(srcPath, destPath):
+        """ Download a file.
         """
 
 

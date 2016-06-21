@@ -364,12 +364,17 @@ class ClientUserAuth(default.SSHUserAuthClient):
             return None
         return defer.succeed(keys.Key.fromFile(file))
 
+
 class SimpleSSHTransport(transport.SSHClientTransport):
 
     def __init__(self):
         self.passwordErrors = []
-        self.sftpChannel = None
-        self.sftpClient = None
+
+        self.idleSftpClients = []
+        self.busySftpClients = set()
+
+        self.maxSftpClients = 4
+        self.sftpQueue = []
 
     def passwordErrorFor(self, user, host):
         if (user, host) not in self.passwordErrors:
@@ -449,53 +454,115 @@ class SimpleSSHTransport(transport.SSHClientTransport):
             return self.sftpClient.removeFile(path)
         """
 
-    def setSftpClient(self, client):
-        self.sftpClient = client
+    def addSftpClientToBusyList(self, client):
+        self.busySftpClients.add(client)
         return client
 
-    def getSftpChannel(self):
-        """ Gets or creates an SFTP channel.
+    def setSftpClientHandle(self, client, clientHandle):
+        clientHandle.append(client)
+        #self.factory.runner.log("sftp clients busy: %d idle: %d" % (len(self.busySftpClients), len(self.idleSftpClients)))
+        return client
+
+    def acquireSftpClient(self):
+        """ Acquires an SFTP client for use. Returns a deferred and a
+            client handle. The handle is intended to be passed to
+            releaseSftpClient. With a callback on the deferred, the client
+            can be used. This saves having to pass around the client.
+
+            Or to show some pseudo-code:
+
+                d, clientHandle = self.acquireSftpClient()
+
+                d.addCallback(self.performOperationsWithClient, ...)
+                d.addCallback(...)
+
+                d.addBoth(self.releaseSftpClient, clientHandle)
         """
-        # self.factory.runner.log("getSftpChannel")
-        if self.sftpClient:
-            return self.sftpClient
-        else:
+        clientHandle = []
+
+        if len(self.idleSftpClients) > 0:
+            client = self.idleSftpClients.pop()
+            self.busySftpClients.add(client)
+
+            # nifty magic to be able to return a deferred and a "client
+            # handle"
             d = defer.Deferred()
-            d.addCallback(self.setSftpClient)
-            self.sftpChannel = self.conn.openSftpChannel(d.callback)
+            reactor.callLater(0.0, d.callback, client)
+        elif len(self.busySftpClients) < self.maxSftpClients:
+            d = defer.Deferred()
+            d.addCallback(self.addSftpClientToBusyList)
+            channel = self.conn.openSftpChannel(d.callback)
             # FIXME: we don't care closing the channel again, until we
             #        terminate the connection
-            return d
+        else:
+            d = defer.Deferred()
+            self.sftpQueue.append(d)
+
+        d.addCallback(self.setSftpClientHandle, clientHandle)
+        return d, clientHandle
+
+    def releaseSftpClient(self, result, clientHandle):
+        """ Release an SFTP client for re-use by others. Expects a result
+            tuple consisting of the client in use plus the result of any
+            operation performed with it (may be None). Only the result is
+            passed on.
+        """
+        assert len(clientHandle) == 1
+        client = clientHandle.pop()
+
+        if len(self.sftpQueue) > 0:
+            assert client in self.busySftpClients
+            d = self.sftpQueue.pop()
+            d.callback(client)
+        else:
+            self.busySftpClients.remove(client)
+            self.idleSftpClients.append(client)
+
+        #self.factory.runner.log("sftp clients busy: %d idle: %d" % (len(self.busySftpClients), len(self.idleSftpClients)))
+
+        return result
 
     def getRealPath(self, path):
-        d = defer.maybeDeferred(self.getSftpChannel)
+        #self.factory.runner.log("getRealPath: %s" % path)
+        d, clientHandle = self.acquireSftpClient()
         d.addCallback(self.performGetRealPath, path)
+        d.addBoth(self.releaseSftpClient, clientHandle)
         return d
 
     def performGetRealPath(self, client, path):
         d = client.realPath(path)
         return d
 
-
-
-
     def uploadFile(self, srcPath, destPath):
         #self.factory.runner.log("uploadFile: %s => %s" % (
         #    repr(srcPath), repr(destPath)))
         fd = open(srcPath, 'r')
-        d = defer.maybeDeferred(self.getSftpChannel)
+        d, clientHandle = self.acquireSftpClient()
         d.addCallback(self.openFileToUpload, destPath)
+        d.addErrback(self.logFailure, 'upload - open')
         d.addCallback(self.triggerDataUpload, fd)
+        d.addErrback(self.logFailure, 'upload - upload')
         d.addCallback(self.closeBothFiles, fd)
+        d.addErrback(self.logFailure, 'upload - close')
+        d.addBoth(self.releaseSftpClient, clientHandle)
         return d
+
+    def logFailure(self, failure, msg):
+        self.factory.runner.log("failure (%s): %s" % (msg, failure.value))
+        return failure
 
     def downloadFile(self, srcPath, destPath):
         #self.factory.runner.log("downloadFile: %s => %s" % (
         #    repr(srcPath), repr(destPath)))
         fd = open(destPath, 'w')
-        d = defer.maybeDeferred(self.getSftpChannel)
+        d, clientHandle = self.acquireSftpClient()
         d.addCallback(self.openFileToDownload, srcPath)
+        d.addErrback(self.logFailure, 'download - open')
         d.addCallback(self.triggerDataDownload, fd)
+        d.addErrback(self.logFailure, 'download - download')
+        d.addCallback(self.closeBothFiles, fd)
+        d.addErrback(self.logFailure, 'download - close')
+        d.addBoth(self.releaseSftpClient, clientHandle)
         return d
 
     def triggerDataUpload(self, remoteFd, localFd):
@@ -508,7 +575,7 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         #self.factory.runner.log("uploadFileChunk (offset: %d, result: %s)" % (offset, repr(ignoredResult)))
 
         # synchronous read from local file
-        CHUNK_SIZE = 65536
+        CHUNK_SIZE = 8192
         data = localFd.read(CHUNK_SIZE)
 
         d = remoteFd.writeChunk(offset, data)
@@ -523,10 +590,10 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         #self.factory.runner.log("downloadFileChunk (offset: %d)" % offset)
 
         # synchronous read from local file
-        CHUNK_SIZE = 65536
+        CHUNK_SIZE = 8192
         d = remoteFd.readChunk(offset, CHUNK_SIZE)
         d.addCallback(self.writeDownloadedData, remoteFd, localFd, offset)
-        d.addErrback(self.handleEOF, localFd)
+        d.addErrback(self.handleEOF, remoteFd, localFd)
         return d
 
     def writeDownloadedData(self, data, remoteFd, localFd, offset):
@@ -536,10 +603,10 @@ class SimpleSSHTransport(transport.SSHClientTransport):
         else:
             return remoteFd
 
-    def handleEOF(self, failure, localFd):
+    def handleEOF(self, failure, remoteFd, localFd):
         failure.trap(exceptions.EOFError)
         #self.factory.runner.log("download completed")
-        localFd.close()
+        return remoteFd
 
     def openFileToUpload(self, client, path):
         # self.factory.runner.log("openFileToUpload")
@@ -589,8 +656,8 @@ class SSHClientFactory(protocol.ClientFactory):
     #def clientConnectionLost(self, connector, reason):
     #    connector.connect()
 
-    #def clientConnectionFailed(self, connector, reason):
-    #    print "ConnectionFailed...\n"
+    def clientConnectionFailed(self, connector, reason):
+        protocol.ClientFactory.clientConnectionFailed(self, connector, reason)
 
 
 class RemoteProcess(EventSource):
@@ -669,7 +736,7 @@ class TestSSHSuite(TestSuite):
     args = (('user', str),
             ('host', str),
             ('port', int),
-			('workdir', str) )
+            ('workdir', str) )
 
     def setUpDescription(self):
         return "connecting to %s:%d" % (self.host, self.port)
@@ -690,7 +757,7 @@ class TestSSHSuite(TestSuite):
 
         # assign temporary ports starting from 32768
         # FIXME: should be configurable!
-        self.temp_ipv4_port = 32768
+        self.temp_port = 32768
 
         self.tearingDown = False
         self.tearDownDeferred = None
@@ -744,11 +811,10 @@ class TestSSHSuite(TestSuite):
         self.remote_helper = self.transport.startRemoteHelper(self.helperTargetPath)
 
     def handleRemoteHelperFailure(self, failure):
-        errmsg = str(failure.value)
+        self.runner.log("Failed to upload or start remote helper: %s" % str(failure))
 
-        d = self.setupDeferred
-        self.setupDeferred = None
-        d.errback(Exception("Failed to upload or start remote helper: %s" % errmsg))
+        d, self.setupDeferred = self.setupDeferred, None
+        d.errback(failure)
 
         # We set tearingDown already here, because we don't want another
         # error from connectionLost().
@@ -1029,13 +1095,18 @@ class TestSSHSuite(TestSuite):
         d, jobid = self.dispatchCommand("utime", path, atime, mtime)
         return d
 
-    def prepareProcess(self, name, cmdline, cwd=None, lineBasedOutput=False):
-        # FIXME: respect lineBasedOutput!
-
+    def prepareProcess(self, name, cmdline, cwd=None,
+                       lineBasedOutput=True, ignoreOutput=False):
         if isinstance(cmdline, str):
             cmdline = shlex.split(cmdline)
 
-        d, jobid = self.dispatchCommand("proc_prepare", *cmdline)
+        output_type = 'binary'
+        if ignoreOutput:
+            output_type = 'ignore'
+        elif lineBasedOutput:
+            output_type = 'lines'
+
+        d, jobid = self.dispatchCommand("proc_prepare", output_type, *cmdline)
         # d is the termination deferred
 
         # set the working directory, if applicable
@@ -1048,6 +1119,12 @@ class TestSSHSuite(TestSuite):
 
     def getHostName(self):
         return self.remoteInfo['hostname']
+
+    def getHostFrom(self, fromHost):
+        """ FIXME: proper implementation still pending. For now, we simply
+            rely on the given hostname.
+        """
+        return self.host
 
     def getTempDir(self, desc):
         result = self.joinPath(self.absWorkdir,
@@ -1105,8 +1182,8 @@ class TestSSHSuite(TestSuite):
     def downloadFile(self, srcPath, destPath):
         return self.transport.downloadFile(srcPath, destPath)
 
-    def getTempIP4Port(self):
-        result = self.temp_ipv4_port
-        self.temp_ipv4_port += 1
+    def getTempPort(self):
+        result = self.temp_port
+        self.temp_port += 1
         return result
 

@@ -48,7 +48,7 @@ class CommandProcessor:
                     in_backslash = True
                 else:
                     self.logParserError("WARNING: invalid position for backslash, ignored!")
-            elif char in "0123456789" and not in_backslash:
+            elif char in "-.0123456789" and not in_backslash:
                 if in_number or in_single_string or in_double_string:
                     token += char
                 else:
@@ -84,7 +84,7 @@ class CommandProcessor:
                         self.logParserError("invalid char outside of token: '%s' (in %s)" % (repr(char), repr(line)))
 
         if in_number:
-            if "." in token:
+            if "." in token or "e" in token:
                 args.append(float(token))
             else:
                 args.append(int(token))
@@ -101,6 +101,36 @@ class CommandProcessor:
     def logParserError(self, msg):
         """ Abstract method, needs to be overridden
         """
+
+
+class swallowPipeDispatcher(asyncore.file_dispatcher):
+
+    def __init__(self, parent, fd, name, map=None):
+        asyncore.file_dispatcher.__init__(self, fd, map)
+        self.parent = parent
+        self.name = name
+        self.closed = False
+        self.rest = ""
+
+    def writable(self):
+        return False
+
+    def handle_read(self):
+        try:
+            data = self.recv(8192)
+        except exceptions.OSError, e:
+            # using a pty, we don't get a call to handle_close(), but
+            # instead fail on recv() here.
+            #
+            # Maybe this catch block is too catchy?  Any reason to keep the
+            # reader open even afer an OSError?
+            self.handle_close()
+            return
+
+    def handle_close(self):
+        self.close()
+        self.closed = True
+        self.parent.close_pipe(self.name)
 
 
 class readPipeDispatcher(asyncore.file_dispatcher):
@@ -251,8 +281,8 @@ class readCmdPipeDispatcher(readPipeDispatcher, CommandProcessor):
                 self.parent.startCopy(*args)
         elif cmd == 'proc_prepare':
             # prepare a command to run
-            if len(args) < 2:
-                self.parent.reportCmdError('cmd_prepare expects two or more arguments')
+            if len(args) < 3:
+                self.parent.reportCmdError('cmd_prepare expects three or more arguments')
             else:
                 self.parent.prepareProcess(*args)
         elif cmd == 'proc_cwd':
@@ -308,9 +338,10 @@ class readCmdPipeDispatcher(readPipeDispatcher, CommandProcessor):
 
 class ProcessMonitor:
 
-    def __init__(self, parent, jobid, cmdline):
+    def __init__(self, parent, jobid, output_type, cmdline):
         self.parent = parent
         self.jobid = jobid
+        self.output_type = output_type
         self.cmdline = cmdline
         self.cwd = "."
         self.use_pty = False
@@ -372,14 +403,23 @@ class ProcessMonitor:
 
         self.parent.gotProcessPid(self.jobid, self.proc.pid)
 
+        # setup input pipes
         if self.use_pty:
             self.in_pipe = writePipeDispatcher(self, self.master, name="in")
-            self.out_pipe = readPipeDispatcher(self, self.master, name="out")
-            self.err_pipe = readPipeDispatcher(self, self.master, name="err")
         else:
             self.in_pipe = writePipeDispatcher(self, self.proc.stdin, name="in")
-            self.out_pipe = readPipeDispatcher(self, self.proc.stdout, name="out")
-            self.err_pipe = readPipeDispatcher(self, self.proc.stderr, name="err")
+
+        # setup output pipes
+        if self.output_type == 'ignore':
+            self.out_pipe = swallowPipeDispatcher(self, self.proc.stdout, name="out")
+            self.err_pipe = swallowPipeDispatcher(self, self.proc.stdin, name="err")
+        else:
+            if self.use_pty:
+                self.out_pipe = readPipeDispatcher(self, self.master, name="out")
+                self.err_pipe = readPipeDispatcher(self, self.master, name="err")
+            else:
+                self.out_pipe = readPipeDispatcher(self, self.proc.stdout, name="out")
+                self.err_pipe = readPipeDispatcher(self, self.proc.stderr, name="err")
 
         if len(self.in_buffer) > 0:
             self.in_pipe.write(self.in_buffer)
@@ -392,7 +432,7 @@ class ProcessMonitor:
             self.handle_process_terminated()
 
     def stop_subprocess(self):
-        os.kill(self.proc.pid, signal.SIGTERM)
+        os.kill(self.proc.pid, signal.SIGINT)
         # FIXME: should check whether or not the process terminated,
         # possibly send a SIGKILL later on
 
@@ -604,8 +644,8 @@ class Helper:
         else:
             self.reportJobDone(jobid)
 
-    def prepareProcess(self, jobid, *cmdline):
-        self.jobs[jobid] = ProcessMonitor(self, jobid, cmdline)
+    def prepareProcess(self, jobid, output_type, *cmdline):
+        self.jobs[jobid] = ProcessMonitor(self, jobid, output_type, cmdline)
         # no confirmation required
 
     def setProcessCwd(self, jobid, cwd):
@@ -621,8 +661,11 @@ class Helper:
         # returns pid as soon as fork() terminated
 
     def stopProcess(self, jobid):
-        self.jobs[jobid].stop_subprocess()
-        # no confirmation required, process will trigger done anyway
+        try:
+            self.jobs[jobid].stop_subprocess()
+            # no confirmation required, process will trigger done anyway
+        except Exception, e:
+            self.reportJobFailed(jobid, "failed stopping process: " + str(e))
 
     def writeProcess(self, jobid, data):
         self.jobs[jobid].write(data)
