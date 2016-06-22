@@ -3,7 +3,7 @@ ssh.py
 
 An ssh building block to get access to run tests remotely.
 
-Copyright (c) 2015 Markus Wanner
+Copyright (c) 2015-2016 Markus Wanner
 
 Distributed under the Boost Software License, Version 1.0. (See
 accompanying file LICENSE).
@@ -21,7 +21,7 @@ from twisted.conch.client import default, direct, options
 
 from dtester import utils
 from dtester.test import TestSuite
-from dtester.interfaces import IControlledHost
+from dtester.interfaces import IControllableHost, IControlledHost
 from dtester.events import EventSource, EventMatcher, \
                            ProcessOutStreamEvent,  ProcessErrStreamEvent
 
@@ -142,11 +142,9 @@ class RemoteHelperChannel(channel.SSHChannel, CommandProcessor):
         self.parent.remoteHelperStarted()
 
     def execFailed(self, failure):
-        self.parent.runner.log("error executing remote helper process")
         self.parent.remoteHelperFailed(failure)
 
     def dataReceived(self, data):
-        #self.parent.runner.log("DEBUG: got data of size %d: %s" % (len(data), repr(data)))
         buf = self.outBuffer + data
         idx = buf.find("\n")
         while idx >= 0:
@@ -156,9 +154,9 @@ class RemoteHelperChannel(channel.SSHChannel, CommandProcessor):
             if 0:
                 debugline = line
                 while len(debugline) > 160:
-                    self.parent.runner.log("rDEBUG: %s" % repr(debugline[:120]))
+                    #self.parent.runner.log("DEBUG: %s" % repr(debugline[:120]))
                     debugline = debugline[120:]
-                self.parent.runner.log("DEBUG: %s" % repr(debugline))
+                #self.parent.runner.log("DEBUG: %s" % repr(debugline))
 
             self.parseCommand(line)
             buf = buf[idx+1:]
@@ -174,10 +172,9 @@ class RemoteHelperChannel(channel.SSHChannel, CommandProcessor):
     def logParserError(self, msg):
         self.parent.runner.log("WARNING: " + msg)
 
-
-
     def extReceived(self, dataType, data):
-        self.parent.runner.log("WARNING: got ext data from remote helper!?!: %s" % repr(data))
+        self.parent.runner.log(
+            "WARNING: got ext data from remote helper!?!: %s" % repr(data))
 
     def eofReceived(self):
         pass
@@ -653,8 +650,8 @@ class SSHClientFactory(protocol.ClientFactory):
     def __init__(self, runner):
         self.runner = runner
 
-    #def clientConnectionLost(self, connector, reason):
-    #    connector.connect()
+    def clientConnectionLost(self, connector, reason):
+        protocol.ClientFactory.clientConnectionLost(self, connector, reason)
 
     def clientConnectionFailed(self, connector, reason):
         protocol.ClientFactory.clientConnectionFailed(self, connector, reason)
@@ -733,16 +730,18 @@ class TestSSHSuite(TestSuite):
 
     implements(IControlledHost)
 
+    needs = (('host', IControllableHost),)
+
     args = (('user', str),
-            ('host', str),
-            ('port', int),
             ('workdir', str) )
 
     def setUpDescription(self):
-        return "connecting to %s:%d" % (self.host, self.port)
+        return "connecting to %s:%d" % (
+            self.host.getHost(), self.host.getPort())
 
     def tearDownDescription(self):
-        return "disconnecting from %s:%d" % (self.host, self.port)
+        return "disconnecting from %s:%d" % (
+            self.host.getHost(), self.host.getPort())
 
     def setUp(self):
         self.remote_helper = None
@@ -759,11 +758,15 @@ class TestSSHSuite(TestSuite):
         # FIXME: should be configurable!
         self.temp_port = 32768
 
+        self.absWorkdir = None
+
         self.tearingDown = False
         self.tearDownDeferred = None
 
         factory = SSHClientFactory(self.runner)
-        endpoint = endpoints.TCP4ClientEndpoint(reactor, self.host, self.port)
+        endpoint = endpoints.TCP4ClientEndpoint(reactor,
+                                                self.host.getHost(),
+                                                self.host.getPort())
         d = endpoint.connect(factory)
         d.addCallback(self.startConnection)
 
@@ -808,10 +811,12 @@ class TestSSHSuite(TestSuite):
         return d
 
     def transferredRemoteHelper(self, result):
-        self.remote_helper = self.transport.startRemoteHelper(self.helperTargetPath)
+        self.remote_helper = \
+          self.transport.startRemoteHelper(self.helperTargetPath)
 
     def handleRemoteHelperFailure(self, failure):
-        self.runner.log("Failed to upload or start remote helper: %s" % str(failure))
+        self.runner.log("Failed to upload or start remote helper: %s" %
+                            str(failure))
 
         d, self.setupDeferred = self.setupDeferred, None
         d.errback(failure)
@@ -837,14 +842,14 @@ class TestSSHSuite(TestSuite):
 
     def connectionLost(self, reason):
         if self.setupDeferred:
-            d = self.setupDeferred
-            self.setupDeferred = None
-
+            d, self.setupDeferred = self.setupDeferred, None
             passwordErrors = self.transport.getPasswordErrors()
             if len(passwordErrors) > 0:
-                d.errback(Exception("password required for: %s" % (repr(passwordErrors),)))
+                d.errback(Exception("password required for: %s"
+                                        % (repr(passwordErrors),)))
             else:
-                d.errback(Exception("eeeeeeeeeeeee"))
+                d.errback(Exception("eeeeeeeeeeeee, connection lost: %s"
+                                        % repr(reason.value)))
         elif self.tearDownDeferred is not None:
             self.tearDownDeferred.callback(True)
         else:
@@ -881,9 +886,9 @@ class TestSSHSuite(TestSuite):
                 jobName = self.completedProcs[jobid]
             elif jobid in self.pendingProcs:
                 jobName = self.pendingProcs[jobid].name
-                self.runner.log("Warning: proc still pending: %s" % jobName)
+                #self.runner.log("Warning: proc still pending: %s" % jobName)
             else:
-                self.runner.log("No proc name for %d" % jobid)
+                #self.runner.log("No proc name for %d" % jobid)
                 jobName = "(unknown)"
             outfd.write("%s:%s:%s:%s" % (
                 t, jobName, channel, data))
@@ -934,7 +939,8 @@ class TestSSHSuite(TestSuite):
         else:
             self.processUnknownCommand(cmd, *args)
 
-    def processHello(self, hostname, system, release, version, machine, separator):
+    def processHello(self, hostname, system, release, version, machine,
+                         separator):
         self.remoteInfo = {
             'hostname': hostname,
             'system': system,
@@ -957,14 +963,13 @@ class TestSSHSuite(TestSuite):
 
     def processRemoteJobDone(self, jobid, retcode=0):
         if jobid not in self.pendingJobs:
-            self.runner.log("remote helper sent 'done' for unknown job %d" % jobid)
-            raise Exception("remote helper sent 'done' for unknown job %d" % jobid)
+            raise Exception("remote helper sent 'done' for unknown job %d"
+                                % jobid)
 
         d, cmd, job_args = self.pendingJobs[jobid]
         del self.pendingJobs[jobid]
 
         if jobid in self.pendingProcs:
-            #self.runner.log("remote process terminated (success) (%s)" % repr(job_args))
             proc = self.pendingProcs[jobid]
             self.completedProcs[jobid] = proc.name
             del self.pendingProcs[jobid]
@@ -979,7 +984,6 @@ class TestSSHSuite(TestSuite):
 
     def processRemoteJobFailed(self, jobid, *args):
         if jobid not in self.pendingJobs:
-            self.runner.log("remote helper sent 'failed' for unknown job %d" % jobid)
             raise Exception("remote helper sent 'failed' for unknown job %d" % jobid)
 
         d, cmd, job_args = self.pendingJobs[jobid]
@@ -1006,7 +1010,6 @@ class TestSSHSuite(TestSuite):
 
     def processListEntry(self, etype, jobid, path, atime, mtime, ctime):
         if jobid not in self.pendingJobs:
-            self.runner.log("remote helper sent 'list_file' for unknown job id %d" % jobid)
             raise Exception("remote helper sent 'list_file' for unknown job id %d" % jobid)
 
         self.pendingLists[jobid].append((etype, path, atime, mtime, ctime))
@@ -1016,6 +1019,7 @@ class TestSSHSuite(TestSuite):
 
     def processCmdError(self, msg):
         self.runner.log("command error: %s" % msg)
+        pass
 
     def processProcPid(self, jobid, pid):
         if jobid not in self.pendingProcs:
@@ -1124,9 +1128,10 @@ class TestSSHSuite(TestSuite):
         """ FIXME: proper implementation still pending. For now, we simply
             rely on the given hostname.
         """
-        return self.host
+        return self.host.getHost()
 
     def getTempDir(self, desc):
+        assert(self.absWorkdir is not None)
         result = self.joinPath(self.absWorkdir,
                                "%s-%04d" % (desc, self.temp_dir_counter))
         self.temp_dir_counter += 1
@@ -1150,13 +1155,13 @@ class TestSSHSuite(TestSuite):
         hookid = self.hook_counter
         self.hook_counter += 1
 
-        self.remote_helper.custom_request("proc_add_hook", jobid, stream, hookid, pattern)
+        self.remote_helper.custom_request("proc_add_hook", jobid, stream,
+                                              hookid, pattern)
         # no waiting for the hook to be in place... (?!?)
 
         return hookid
 
     def writeProcess(self, jobid, data):
-        self.runner.log("writing %s to process %d" % (repr(data), jobid))
         self.remote_helper.custom_request("proc_write", jobid, data)
 
     def closeProcessStdin(self, jobid):

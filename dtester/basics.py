@@ -1,6 +1,6 @@
 # basics.py
 #
-# Copyright (c) 2015 Markus Wanner
+# Copyright (c) 2015-2016 Markus Wanner
 #
 # Distributed under the Boost Software License, Version 1.0. (See
 # accompanying file LICENSE).
@@ -13,7 +13,7 @@ from zope.interface import implements
 
 from twisted.internet import defer, reactor
 
-from dtester.interfaces import IControlledHost, IDirectory
+from dtester.interfaces import IControllableHost, IControlledHost, IDirectory
 from dtester.test import TestSuite
 
 
@@ -87,3 +87,22 @@ class PreparationProcessMixin:
 
     def processSettings(self, proc):
         pass
+
+
+class ControllableHost(TestSuite):
+    """ A manually configured controllable host.
+    """
+
+    implements(IControllableHost)
+
+    args = (('host', str),
+            ('port', int))
+
+    setUpDescription = None
+    tearDownDescription = None
+
+    def getHost(self):
+        return self.host
+
+    def getPort(self):
+        return self.port

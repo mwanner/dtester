@@ -4,7 +4,7 @@
 ssh.py
 
 An example for using ssh functionality of dtester. Requires key-less
-access of the current user to localhost via ssh.
+access of the current user to localhost via ssh on port 22.
 
 Copyright (c) 2015 Markus Wanner
 
@@ -17,9 +17,24 @@ import os, dtester
 user = os.getenv('USER', 'nobody')
 home = os.getenv('HOME', '/home/nobody')
 
+class ExampleTest(dtester.test.BaseTest):
+    description = "no-op test"
+    needs = (('host', dtester.interfaces.IControlledHost),)
+
 tdef = {
-    'ssh1': {'class': dtester.net.ssh.TestSSHSuite,
-             'args': (user, 'localhost', 22, home + '/.dtester')}
+    'localhost': {
+        'class': dtester.basics.ControllableHost,
+        'args': ('localhost', 22)
+        },
+    'ssh_connection': {
+        'class': dtester.net.ssh.TestSSHSuite,
+        'uses': ('localhost',),
+        'args': (user, home + '/.dtester')
+        },
+    'test': {
+        'class': ExampleTest,
+        'uses': ('ssh_connection',)
+        }
 }
 
 config = {}

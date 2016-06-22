@@ -214,7 +214,9 @@ class Runner:
             os.makedirs(self.reportDir)
 
         self.evlog = open(os.path.join(self.tmpDir, "localhost-event.log"), 'w')
-        self.hostEventLogs = {'localhost': os.path.join(self.tmpDir, "localhost-event.log")}
+        self.hostEventLogs = {
+            'localhost': os.path.join(self.tmpDir, "localhost-event.log")
+            }
 
     def getTmpDir(self):
         return self.tmpDir
@@ -371,7 +373,6 @@ class Runner:
         return None
 
     def ebSuiteSetUpFailed(self, error, suite_name, suite):
-        self.reporter.log("setUp failed for test suite: '%s'" % suite_name)
         self.test_states[suite_name].tStatus = 'failed'
         self.test_states[suite_name].failure = error
         self.reporter.stopSetUpSuite(suite_name, suite)
@@ -692,7 +693,7 @@ class Runner:
         self.reporter.begin(tdef)
 
         # initialize the initial system suite
-        state = TestState(system.__class__, 'localhost')
+        state = TestState(system.__class__, '__initial')
         state.running = True
         state.setSuite(system)
         state.tStatus = 'running'
@@ -700,7 +701,7 @@ class Runner:
         state.tNeeds = []
         state.tDependencies = []
         state.tOnlyAfter = []
-        self.test_states['localhost'] = state
+        self.test_states['__initial'] = state
 
         self.parseTestDef(tdef)
 
@@ -797,9 +798,6 @@ class Runner:
     def testStartupFailed(self, error, tname, t):
         t.tStatus = 'done'
         t.failure = error
-
-        self.reporter.log("testStartupFailed: %s: %s" % (
-            tname, repr(error.value)))
 
         (inner_error, tb, tbo) = self.reporter.getInnerError(error)
 
@@ -901,7 +899,8 @@ class Runner:
         return (runnable, terminatable, abortable, running)
 
     def run(self, tdef, config):
-        system = InitialSuite(self, 'localhost', config=config, env=copy.copy(os.environ))
+        system = InitialSuite(self, '__initial',
+                              config=config, env=copy.copy(os.environ))
         if self.controlReactor:
             reactor.callLater(0, self.processCmdList, tdef, system)
             reactor.run()

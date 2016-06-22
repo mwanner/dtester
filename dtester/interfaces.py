@@ -1,6 +1,6 @@
 # interfaces.py
 #
-# Copyright (c) 2015 Markus Wanner
+# Copyright (c) 2015-2016 Markus Wanner
 #
 # Distributed under the Boost Software License, Version 1.0. (See
 # accompanying file LICENSE).
@@ -10,6 +10,18 @@ Definition of interfaces.
 """
 
 from zope.interface.interface import Interface
+
+
+class IControllableHost(Interface):
+
+    def getHost():
+        """ Returns a hostname or IP address under which the host is reachable.
+        """
+
+    def getPort():
+        """ Returns the port to use.
+        """
+
 
 class IControlledHost(Interface):
 
@@ -115,6 +127,7 @@ class IPostgresDatabaseCluster(IDirectory):
         """ Returns the current user of the database cluster.
         """
 
+
 class IPostgresService(IControlledHost, IInstalledSoftware):
 
     def getPort():
@@ -128,4 +141,3 @@ class IPostgresDatabase(IControlledHost):
         """ Returns the service instance that's currently serving the
             database.
         """
-

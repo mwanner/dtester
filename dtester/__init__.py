@@ -1,18 +1,33 @@
 """a component based test suite for distributed systems
 
 @author: Markus Wanner
-@copyright: Copyright (c) 2006-2010, Markus Wanner
+@copyright: Copyright (c) 2006-2016, Markus Wanner
 @license: Boost Software License, Version 1.0.
 """
 
-import events, exceptions, net, processes, reporter, runner, test
+import basics
+import events
+import exceptions
+import net
+import processes
+import reporter
+import runner
+import test
 
 __author__ = "Markus Wanner"
 __copyright__ = "Copyright (c) 2006-2010, Markus Wanner"
 __version__ = "0.2dev"
 __license__ = "Boost Software License, Version 1.0 (BSD like)"
-__all__ = ["events", "exceptions", "net", "processes", "reporter", "runner",
-           "test"]
+__all__ = [
+    "basics",
+    "events",
+    "exceptions",
+    "net",
+    "processes",
+    "reporter",
+    "runner",
+    "test"
+    ]
 
 # the self-test suite to run from setuptools
 import dtests
