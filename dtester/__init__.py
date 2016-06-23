@@ -6,6 +6,7 @@
 """
 
 import basics
+import db
 import events
 import exceptions
 import net
@@ -15,11 +16,12 @@ import runner
 import test
 
 __author__ = "Markus Wanner"
-__copyright__ = "Copyright (c) 2006-2010, Markus Wanner"
+__copyright__ = "Copyright (c) 2006-2016, Markus Wanner"
 __version__ = "0.2dev"
 __license__ = "Boost Software License, Version 1.0 (BSD like)"
 __all__ = [
     "basics",
+    "db",
     "events",
     "exceptions",
     "net",
